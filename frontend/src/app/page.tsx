@@ -54,7 +54,6 @@ interface DashboardData {
     confidence: number;
     reason: string;
   };
-  };
 }
 
 const NewsItem = ({ n, type }: { n: any, type: 'india' | 'global' }) => {
