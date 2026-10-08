@@ -34,30 +34,45 @@ class OrderflowEngine:
         ltp = tick.get("ltp", 0.0)
         vol = tick.get("volume", 0)
         
-        # 1. Update VWAP (Typical Price calculation requires H, L, C, but for tick VWAP we use LTP * Vol)
-        # In a real system, you'd aggregate 1-minute bars or use trade-by-trade
+        # Extract previous tick state to get tick_volume
+        prev_tick_str = await redis_db.redis.get(f"PREV_TICK:{symbol}")
+        prev_ltp = ltp
+        prev_vol = vol
+        if prev_tick_str:
+            prev_tick = json.loads(prev_tick_str)
+            prev_ltp = prev_tick.get("ltp", ltp)
+            prev_vol = prev_tick.get("volume", vol)
+            
+        tick_volume = vol - prev_vol
+        if tick_volume < 0: # Reset on new day or bad tick
+            tick_volume = vol
+            
+        # 1. Update VWAP (using exact tick volume)
         if symbol == "INDEX:NIFTY50" or symbol == "FUT:NIFTY:CURR":
             base = "NIFTY50"
-            self.vwap_state[base]["cumulative_pv"] += (ltp * vol)
-            self.vwap_state[base]["cumulative_vol"] += vol
+            self.vwap_state[base]["cumulative_pv"] += (ltp * tick_volume)
+            self.vwap_state[base]["cumulative_vol"] += tick_volume
+            if self.vwap_state[base]["cumulative_vol"] > 0:
+                vwap = self.vwap_state[base]["cumulative_pv"] / self.vwap_state[base]["cumulative_vol"]
+                await redis_db.set_json(f"METRIC:VWAP:{base}", {"vwap": round(vwap, 2)})
+                
+        elif symbol == "INDEX:NIFTYBANK" or symbol == "FUT:BANKNIFTY:CURR":
+            base = "BANKNIFTY"
+            self.vwap_state[base]["cumulative_pv"] += (ltp * tick_volume)
+            self.vwap_state[base]["cumulative_vol"] += tick_volume
             if self.vwap_state[base]["cumulative_vol"] > 0:
                 vwap = self.vwap_state[base]["cumulative_pv"] / self.vwap_state[base]["cumulative_vol"]
                 await redis_db.set_json(f"METRIC:VWAP:{base}", {"vwap": round(vwap, 2)})
                 
         # 2. Cumulative Volume Delta (CVD)
         # Tick goes up -> Buy Volume (+), Tick goes down -> Sell Volume (-)
-        # We need the previous LTP to determine direction
-        prev_tick_str = await redis_db.redis.get(f"PREV_TICK:{symbol}")
-        if prev_tick_str:
-            prev_tick = json.loads(prev_tick_str)
-            prev_ltp = prev_tick.get("ltp", 0.0)
-            
+        if prev_tick_str and tick_volume > 0:
             direction = 1 if ltp > prev_ltp else (-1 if ltp < prev_ltp else 0)
             if "NIFTY" in symbol and "BANK" not in symbol:
-                self.cumulative_volume_delta["NIFTY50"] += (direction * vol)
+                self.cumulative_volume_delta["NIFTY50"] += (direction * tick_volume)
                 await redis_db.set_json("METRIC:CVD:NIFTY50", {"cvd": self.cumulative_volume_delta["NIFTY50"]})
             elif "BANKNIFTY" in symbol:
-                self.cumulative_volume_delta["BANKNIFTY"] += (direction * vol)
+                self.cumulative_volume_delta["BANKNIFTY"] += (direction * tick_volume)
                 await redis_db.set_json("METRIC:CVD:BANKNIFTY", {"cvd": self.cumulative_volume_delta["BANKNIFTY"]})
 
         # Save this tick as prev for next calculation

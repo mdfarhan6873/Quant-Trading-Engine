@@ -73,8 +73,47 @@ class TokenManager:
                     
             logger.info(f"Successfully mapped {len(self.symbol_to_key)} exact instruments. Option chain will be built dynamically.")
             self.csv_data = data # Store for dynamic searches
+            
+            # Map futures
+            self.map_front_month_futures()
         except Exception as e:
             logger.error(f"Failed to fetch Scrip Master: {e}")
+
+    def map_front_month_futures(self):
+        """Finds the front-month FUTIDX for NIFTY and BANKNIFTY and maps them."""
+        if not hasattr(self, 'csv_data'):
+            return
+            
+        nifty_futs = []
+        banknifty_futs = []
+        
+        reader = csv.DictReader(io.StringIO(self.csv_data))
+        for row in reader:
+            if row.get("instrument_type") == "FUTIDX":
+                name = row.get("name")
+                if name == "NIFTY":
+                    nifty_futs.append(row)
+                elif name == "BANKNIFTY":
+                    banknifty_futs.append(row)
+                    
+        # Sort by expiry and get the nearest
+        if nifty_futs:
+            nifty_futs.sort(key=lambda x: x.get("expiry", ""))
+            front_key = nifty_futs[0].get("instrument_key")
+            if front_key:
+                internal_sym = "FUT:NIFTY:CURR"
+                self.symbol_to_key[internal_sym] = front_key
+                self.key_to_symbol[front_key] = internal_sym
+                logger.info(f"Mapped {internal_sym} -> {front_key}")
+                
+        if banknifty_futs:
+            banknifty_futs.sort(key=lambda x: x.get("expiry", ""))
+            front_key = banknifty_futs[0].get("instrument_key")
+            if front_key:
+                internal_sym = "FUT:BANKNIFTY:CURR"
+                self.symbol_to_key[internal_sym] = front_key
+                self.key_to_symbol[front_key] = internal_sym
+                logger.info(f"Mapped {internal_sym} -> {front_key}")
 
     def find_option_instrument_key(self, index_name: str, strike: float, opt_type: str) -> str:
         """Helper to find the nearest expiring option instrument key based on strike."""
@@ -126,6 +165,9 @@ class PrimaryDataNode:
             self.token_manager.symbol_to_key.get("INDEX:NIFTY50"),
             self.token_manager.symbol_to_key.get("INDEX:NIFTYBANK"),
             self.token_manager.symbol_to_key.get("INDEX:INDIAVIX"),
+            # Futures
+            self.token_manager.symbol_to_key.get("FUT:NIFTY:CURR"),
+            self.token_manager.symbol_to_key.get("FUT:BANKNIFTY:CURR"),
             # Add heavyweights
             self.token_manager.symbol_to_key.get("EQ:HDFCBANK"),
             self.token_manager.symbol_to_key.get("EQ:RELIANCE"),
