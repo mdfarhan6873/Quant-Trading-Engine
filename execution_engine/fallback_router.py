@@ -12,9 +12,9 @@ class DhanFallbackRouter:
     If Shoonya APIs drop, the system instantly switches to this node to manage positions.
     """
     def __init__(self):
-        self.base_url = settings.DHAN_BASE_URL
-        self.client_id = settings.DHAN_CLIENT_ID
-        self.access_token = settings.DHAN_ACCESS_TOKEN
+        self.base_url = getattr(settings, "DHAN_BASE_URL", "https://api.dhan.co")
+        self.client_id = getattr(settings, "DHAN_CLIENT_ID", "")
+        self.access_token = getattr(settings, "DHAN_ACCESS_TOKEN", "")
         
         self.headers = {
             "access-token": self.access_token,

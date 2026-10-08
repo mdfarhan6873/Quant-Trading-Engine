@@ -15,11 +15,18 @@ class Config:
     SHOONYA_IMEI = os.getenv("SHOONYA_IMEI", "")
     SHOONYA_BASE_URL = os.getenv("SHOONYA_BASE_URL", "https://api.shoonya.com/NorenWClientTP")
 
-    DHAN_CLIENT_ID = os.getenv("DHAN_CLIENT_ID", "")
-    DHAN_ACCESS_TOKEN = os.getenv("DHAN_ACCESS_TOKEN", "")
-    DHAN_BASE_URL = os.getenv("DHAN_BASE_URL", "https://api.dhan.co")
-    DHAN_WSS_URL = os.getenv("DHAN_WSS_URL", "wss://api.dhan.co/v2/marketfeed")
-    DHAN_SCRIP_MASTER_URL = os.getenv("DHAN_SCRIP_MASTER_URL", "https://images.dhan.co/api-data/api-scrip-master.csv")
+    # Groww API
+    GROWW_CLIENT_ID = os.getenv("GROWW_CLIENT_ID", "")
+    GROWW_PASSWORD = os.getenv("GROWW_PASSWORD", "")
+    GROWW_TOTP_SECRET = os.getenv("GROWW_TOTP_SECRET", "")
+    GROWW_API_KEY = os.getenv("GROWW_API_KEY", "")
+    GROWW_API_SECRET = os.getenv("GROWW_API_SECRET", "")
+
+    UPSTOX_API_KEY = os.getenv("UPSTOX_API_KEY", "")
+    UPSTOX_API_SECRET = os.getenv("UPSTOX_API_SECRET", "")
+    UPSTOX_REDIRECT_URI = os.getenv("UPSTOX_REDIRECT_URI", "")
+    UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+
 
     # LLM Providers
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")

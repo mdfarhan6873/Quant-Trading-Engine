@@ -161,14 +161,47 @@ class GreeksEngine:
         except Exception as e:
             logger.error(f"Error calculating GEX: {e}")
 
+    async def calculate_pcr(self, spot_symbol: str):
+        """
+        Calculates Put-Call Ratio (PCR) based on Open Interest.
+        PCR = Total Put OI / Total Call OI
+        """
+        try:
+            cursor = b'0'
+            total_put_oi = 0
+            total_call_oi = 0
+            prefix = "NIFTY" if "NIFTY50" in spot_symbol else "BANKNIFTY"
+            
+            while cursor:
+                cursor, keys = await redis_db.redis.scan(cursor, match=f"LTP:OPT:{prefix}:*", count=100)
+                for key in keys:
+                    data_str = await redis_db.redis.get(key)
+                    if data_str:
+                        data = json.loads(data_str)
+                        symbol = data.get("symbol", "")
+                        oi = data.get("oi", 0)
+                        
+                        if symbol.endswith("CE"):
+                            total_call_oi += oi
+                        elif symbol.endswith("PE"):
+                            total_put_oi += oi
+                            
+            pcr = round(total_put_oi / total_call_oi, 4) if total_call_oi > 0 else 0
+            await redis_db.set_json(f"METRIC:PCR:{prefix}", {"pcr": pcr, "put_oi": total_put_oi, "call_oi": total_call_oi})
+            logger.debug(f"Calculated PCR for {prefix}: {pcr}")
+        except Exception as e:
+            logger.error(f"Error calculating PCR: {e}")
+
     async def periodic_aggregations(self):
         """Runs heavy calculations periodically (every 10 seconds)."""
         while self.is_running:
             await self.calculate_max_pain("INDEX:NIFTY50")
             await self.calculate_gex("INDEX:NIFTY50")
+            await self.calculate_pcr("INDEX:NIFTY50")
             
             await self.calculate_max_pain("INDEX:NIFTYBANK")
             await self.calculate_gex("INDEX:NIFTYBANK")
+            await self.calculate_pcr("INDEX:NIFTYBANK")
             await asyncio.sleep(10)
 
     async def run(self):

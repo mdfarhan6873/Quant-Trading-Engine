@@ -85,7 +85,7 @@ class MacroDataNode:
             # Send title, summary, and link to the AI engine & frontend
             news_data["indian_markets"] = [
                 {"title": entry.title, "summary": entry.get("summary", ""), "link": entry.get("link", ""), "date": entry.get("published", "")}
-                for entry in feed.entries[:3]
+                for entry in feed.entries[:10]
             ]
         except Exception as e:
             logger.error(f"RSS Feed failed: {e}")
@@ -100,7 +100,7 @@ class MacroDataNode:
                         articles = response.json().get("articles", [])
                         news_data["global_breaking"] = [
                             {"title": a["title"], "summary": a.get("description", ""), "link": a.get("url", ""), "date": a.get("publishedAt", "")} 
-                            for a in articles[:3]
+                            for a in articles[:10]
                         ]
             except Exception as e:
                 logger.error(f"NewsAPI failed: {e}")

@@ -12,6 +12,10 @@ from data_ingestion.greeks_engine import GreeksEngine
 from data_ingestion.macro_node import MacroDataNode
 from strategy_engine.brain import StrategyBrain
 import uvicorn
+from pydantic import BaseModel
+
+class ModeUpdate(BaseModel):
+    mode: str
 
 logger = logging.getLogger("API")
 
@@ -92,7 +96,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 "market_state": full_state,
                 "positions": positions,
                 "last_signal": last_signal,
-                "status": "ONLINE" if ai_brain.is_running else "OFFLINE"
+                "status": "ONLINE" if ai_brain.is_running else "OFFLINE",
+                "trading_mode": ai_brain.risk_manager.mode
             }
             
             await websocket.send_json(payload)
@@ -110,6 +115,31 @@ async def trigger_kill_switch():
     await ai_brain.risk_manager._trigger_kill_switch()
     ai_brain.is_running = False
     return {"status": "success", "message": "Kill switch activated. All positions closed."}
+
+@app.post("/api/set_mode")
+async def set_trading_mode(payload: ModeUpdate):
+    """Toggles between PAPER and LIVE trading mode."""
+    target_mode = payload.mode.upper()
+    if target_mode not in ["PAPER", "LIVE"]:
+        return {"status": "error", "message": "Invalid mode."}
+        
+    if target_mode == "LIVE":
+        # Check if they have execution credentials
+        if not getattr(settings, "GROWW_API_KEY", "") and not getattr(settings, "DHAN_ACCESS_TOKEN", ""):
+            return {"status": "error", "message": "MISSING_CREDENTIALS"}
+        
+        # Initialize execution routers safely
+        try:
+            from execution_engine.groww_router import GrowwRouter
+            from execution_engine.fallback_router import DhanFallbackRouter
+            ai_brain.risk_manager.groww_router = GrowwRouter()
+            ai_brain.risk_manager.dhan_router = DhanFallbackRouter()
+        except Exception as e:
+            logger.error(f"Failed to init routers: {e}")
+            
+    ai_brain.risk_manager.mode = target_mode
+    logger.warning(f"TRADING MODE SWITCHED TO: {target_mode}")
+    return {"status": "success", "message": f"Trading mode set to {target_mode}"}
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=False)

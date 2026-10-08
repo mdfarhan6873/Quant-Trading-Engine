@@ -16,7 +16,7 @@ class StrategyBrain:
     """
     def __init__(self, mode: str = "PAPER"):
         self.mode = mode
-        self.polling_interval = 2.0 # 2 seconds
+        self.polling_interval = 15.0 # 15 seconds (respect Gemini free tier limits)
         self.is_running = False
         
         self.state_builder = StateBuilder()
@@ -37,7 +37,7 @@ class StrategyBrain:
         # Start the Fast Loop in the background for Trailing SL & Theta Protection
         asyncio.create_task(self.risk_manager.monitor_open_positions())
         
-        system_prompt = await self.state_builder.get_system_prompt()
+        import json
         
         while self.is_running:
             try:
@@ -48,16 +48,31 @@ class StrategyBrain:
                 from core.redis_client import redis_db
                 await redis_db.redis.set("FULL_MARKET_STATE", market_state)
                 
+                # Check if market is open
+                state_dict = json.loads(market_state)
+                is_open = state_dict.get("is_market_open", True)
+                
+                # Adjust polling interval
+                if not is_open:
+                    self.polling_interval = 3600.0  # Poll every 1 hour when closed to save API quotas
+                else:
+                    self.polling_interval = 15.0  # Normal active polling
+                
+                # Fetch dynamic system prompt based on market state
+                system_prompt = await self.state_builder.get_system_prompt(is_open=is_open)
                 
                 # 2. Query LLM (Brain)
                 decision = await self.llm_client.get_decision(system_prompt, market_state)
                 
                 if decision:
-                    from core.redis_client import redis_db
                     await redis_db.set_json("LATEST_AI_SIGNAL", decision)
                     logger.info(f"LLM DECISION: {decision}")
-                    # 3. Risk Gauntlet & Execution (Shield & Hands)
-                    await self.risk_manager.process_decision(decision)
+                    
+                    if is_open:
+                        # 3. Risk Gauntlet & Execution (Shield & Hands)
+                        await self.risk_manager.process_decision(decision)
+                    else:
+                        logger.info("Market Closed. Displaying Post-Market Analysis on Dashboard.")
                 else:
                     logger.warning("LLM returned no valid decision this cycle.")
                     

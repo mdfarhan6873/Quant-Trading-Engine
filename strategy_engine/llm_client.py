@@ -83,7 +83,7 @@ class LLMClient:
             logger.error("GEMINI_API_KEY is missing.")
             return None
             
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.gemini_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={self.gemini_key}"
         
         payload = {
             "system_instruction": {

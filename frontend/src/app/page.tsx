@@ -55,6 +55,7 @@ interface DashboardData {
     confidence: number;
     reason: string;
   };
+  trading_mode?: string;
 }
 
 const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: string, date?: string } | string, type: 'india' | 'global' }) => {
@@ -172,6 +173,30 @@ export default function Dashboard() {
     }
   };
 
+  const toggleTradingMode = async (currentMode: string | undefined) => {
+    const targetMode = currentMode === "LIVE" ? "PAPER" : "LIVE";
+    if (targetMode === "LIVE" && !confirm("⚠️ WARNING: You are switching to REAL LIVE TRADING. Real money will be used. Continue?")) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/api/set_mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: targetMode })
+      });
+      const result = await res.json();
+      
+      if (result.message === "MISSING_CREDENTIALS") {
+        alert("❌ MISSING EXECUTION CREDENTIALS! ❌\n\nYou cannot switch to LIVE Trade. Please add your Groww or Dhan execution API Keys in the .env file.");
+      } else if (result.status === "error") {
+        alert("Error: " + result.message);
+      }
+    } catch {
+      alert("Failed to reach server to switch mode.");
+    }
+  };
+
   if (!connected) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-white">
@@ -217,12 +242,28 @@ export default function Dashboard() {
           </p>
         </div>
         
-        <button 
-          onClick={triggerKillSwitch}
-          className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded font-black text-lg tracking-widest shadow-[0_0_20px_rgba(220,38,38,0.6)] transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
-        >
-          <ShieldAlert size={24} /> KILL SWITCH
-        </button>
+        <div className="flex items-center gap-6">
+          {/* Trading Mode Toggle */}
+          <div className="flex items-center gap-3 bg-zinc-950 p-2 rounded-lg border border-zinc-700">
+            <span className={`text-sm font-bold tracking-widest ${data?.trading_mode === "PAPER" ? "text-blue-400" : "text-zinc-500"}`}>PAPER</span>
+            
+            <button 
+              onClick={() => toggleTradingMode(data?.trading_mode)}
+              className={`relative w-16 h-8 rounded-full transition-colors ${data?.trading_mode === "LIVE" ? "bg-red-600" : "bg-blue-600"}`}
+            >
+              <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all shadow-md ${data?.trading_mode === "LIVE" ? "right-1" : "left-1"}`}></div>
+            </button>
+            
+            <span className={`text-sm font-bold tracking-widest ${data?.trading_mode === "LIVE" ? "text-red-500 animate-pulse drop-shadow-[0_0_5px_rgba(239,68,68,0.8)]" : "text-zinc-500"}`}>LIVE</span>
+          </div>
+
+          <button 
+            onClick={triggerKillSwitch}
+            className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded font-black text-lg tracking-widest shadow-[0_0_20px_rgba(220,38,38,0.6)] transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
+          >
+            <ShieldAlert size={24} /> KILL SWITCH
+          </button>
+        </div>
       </header>
 
       {/* TOP ROW: Indices & Advanced Metrics */}
@@ -392,32 +433,52 @@ export default function Dashboard() {
           </h2>
           
           {data?.last_signal ? (
-            <div className="space-y-4 text-base font-mono relative z-10">
-              <div className="flex items-center gap-4 bg-zinc-900/80 p-3 rounded border border-zinc-600">
-                <span className="text-zinc-200 font-bold w-24">ACTION:</span>
-                <span className={`font-black text-2xl ${data.last_signal.action === 'HOLD' ? 'text-yellow-400' : data.last_signal.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {data.last_signal.action}
-                </span>
-              </div>
-              <div className="flex items-center gap-4 bg-zinc-900/80 p-3 rounded border border-zinc-600">
-                <span className="text-zinc-200 font-bold w-24">TARGET:</span>
-                <span className="text-blue-300 font-black text-xl">{data.last_signal.symbol || "N/A"}</span>
-              </div>
-              <div className="flex items-center gap-4 bg-zinc-900/80 p-3 rounded border border-zinc-600">
-                <span className="text-zinc-200 font-bold w-24">CONFIDENCE:</span>
-                <div className="flex-1 bg-zinc-950 h-4 rounded-full overflow-hidden border border-zinc-600">
-                  <div 
-                    className={`h-full ${data.last_signal.confidence > 80 ? 'bg-emerald-500' : data.last_signal.confidence > 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                    style={{ width: `${data.last_signal.confidence}%` }}
-                  ></div>
+            data.last_signal.action === "ANALYSIS" ? (
+              <div className="space-y-4 relative z-10 h-full flex flex-col justify-start">
+                <div className="bg-blue-900/20 p-4 rounded border border-blue-500/30 text-center mb-2">
+                  <h3 className="text-lg font-black text-blue-400 mb-1 tracking-widest uppercase flex justify-center items-center gap-2">
+                    <span className="animate-pulse h-2 w-2 bg-blue-400 rounded-full"></span> 
+                    AFTER HOURS MARKET PERSPECTIVE
+                  </h3>
+                  <p className="text-zinc-400 text-xs font-semibold">
+                    Market is currently closed. Jini is analyzing macro indices, FII/DII data, and options positioning to build the next session bias.
+                  </p>
                 </div>
-                <span className="text-white font-black text-xl">{data.last_signal.confidence || 0}%</span>
+                <div className="bg-zinc-900/80 p-4 rounded border border-zinc-600 flex-1 overflow-y-auto">
+                  <span className="block text-zinc-200 font-bold mb-2 text-sm tracking-wide">JINI NARRATIVE:</span>
+                  <p className="text-blue-300 font-medium leading-relaxed text-sm block bg-black/50 p-4 rounded border border-blue-900/50 whitespace-pre-wrap">
+                    &quot;{data.last_signal.reason}&quot;
+                  </p>
+                </div>
               </div>
-              <div className="bg-zinc-900/80 p-4 rounded border border-zinc-600 mt-2">
-                <span className="block text-zinc-200 font-bold mb-2 text-sm">JINI RATIONALE:</span>
-                <span className="text-emerald-300 font-medium leading-relaxed text-sm block bg-black/50 p-3 rounded border border-emerald-900/50">&quot;{data.last_signal.reason}&quot;</span>
+            ) : (
+              <div className="space-y-4 text-base font-mono relative z-10">
+                <div className="flex items-center gap-4 bg-zinc-900/80 p-3 rounded border border-zinc-600">
+                  <span className="text-zinc-200 font-bold w-24">ACTION:</span>
+                  <span className={`font-black text-2xl ${data.last_signal.action === 'HOLD' ? 'text-yellow-400' : data.last_signal.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {data.last_signal.action}
+                  </span>
+                </div>
+                <div className="flex items-center gap-4 bg-zinc-900/80 p-3 rounded border border-zinc-600">
+                  <span className="text-zinc-200 font-bold w-24">TARGET:</span>
+                  <span className="text-blue-300 font-black text-xl">{data.last_signal.symbol || "N/A"}</span>
+                </div>
+                <div className="flex items-center gap-4 bg-zinc-900/80 p-3 rounded border border-zinc-600">
+                  <span className="text-zinc-200 font-bold w-24">CONFIDENCE:</span>
+                  <div className="flex-1 bg-zinc-950 h-4 rounded-full overflow-hidden border border-zinc-600">
+                    <div 
+                      className={`h-full ${data.last_signal.confidence > 80 ? 'bg-emerald-500' : data.last_signal.confidence > 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                      style={{ width: `${data.last_signal.confidence}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-white font-black text-xl">{data.last_signal.confidence || 0}%</span>
+                </div>
+                <div className="bg-zinc-900/80 p-4 rounded border border-zinc-600 mt-2">
+                  <span className="block text-zinc-200 font-bold mb-2 text-sm">JINI RATIONALE:</span>
+                  <span className="text-emerald-300 font-medium leading-relaxed text-sm block bg-black/50 p-3 rounded border border-emerald-900/50">&quot;{data.last_signal.reason}&quot;</span>
+                </div>
               </div>
-            </div>
+            )
           ) : (
             <div className="text-zinc-300 flex flex-col items-center justify-center h-48 space-y-4">
               <div className="animate-pulse flex space-x-4 w-full px-8">

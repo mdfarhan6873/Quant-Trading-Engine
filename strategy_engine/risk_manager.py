@@ -4,9 +4,7 @@ import json
 from typing import Dict, Any, Optional
 from core.redis_client import redis_db
 from core.config import settings
-from execution_engine.shoonya_router import ShoonyaRouter
 from execution_engine.paper_trader import PaperTrader
-from execution_engine.fallback_router import DhanFallbackRouter
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +20,14 @@ class RiskManager:
         
         # Instantiate Execution Engines
         self.paper_trader = PaperTrader()
-        self.shoonya_router = ShoonyaRouter()
-        self.dhan_router = DhanFallbackRouter()
+        if self.mode == "LIVE":
+            from execution_engine.groww_router import GrowwRouter
+            from execution_engine.fallback_router import DhanFallbackRouter
+            self.groww_router = GrowwRouter()
+            self.dhan_router = DhanFallbackRouter()
+        else:
+            self.groww_router = None
+            self.dhan_router = None
         
         # State tracking
         self.daily_pnl = 0.0
@@ -33,7 +37,7 @@ class RiskManager:
     async def initialize(self) -> bool:
         """Arms the risk manager and authenticates production routers if needed."""
         if self.mode == "LIVE":
-            success = await self.shoonya_router.login()
+            success = await self.groww_router.login()
             if not success:
                 logger.critical("Failed to authenticate Primary Router. Halting system.")
                 self.is_halted = True
@@ -94,6 +98,11 @@ class RiskManager:
         if action == "HOLD" or qty <= 0:
             return True
             
+        confidence = decision.get("confidence", 0)
+        if action in ["BUY", "SELL"] and confidence < 90:
+            logger.info(f"Trade discarded due to low AI confidence ({confidence}%). Minimum required is 90%.")
+            return True # Discard trade safely
+            
         if action == "CLOSE_ALL":
             logger.critical(f"LLM REQUESTED PORTFOLIO LIQUIDATION. Reason: {decision.get('reason')}")
             await self._trigger_kill_switch()
@@ -120,7 +129,7 @@ class RiskManager:
             return order_id is not None
             
         elif self.mode == "LIVE":
-            order_id = await self.shoonya_router.place_order(symbol, qty, action, "MKT")
+            order_id = await self.groww_router.place_order(symbol, qty, action, "MKT")
             if not order_id:
                 logger.error("Primary Router Failed. Routing to Fallback (Dhan)...")
                 order_id = await self.dhan_router.place_order(symbol, qty, action, "MKT")
@@ -205,11 +214,13 @@ class RiskManager:
         if self.mode == "PAPER":
             await self.paper_trader.close_all_positions()
         elif self.mode == "LIVE":
-            await self.shoonya_router.close_all_positions()
+            await self.groww_router.close_all_positions()
             # As an extreme fallback, we could also ping Dhan just in case
             await self.dhan_router.close_all_positions()
 
     async def shutdown(self):
         self.is_halted = True
-        await self.shoonya_router.shutdown()
-        await self.dhan_router.shutdown()
+        if self.groww_router:
+            await self.groww_router.shutdown()
+        if self.dhan_router:
+            await self.dhan_router.shutdown()
