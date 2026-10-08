@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Globe, MapPin, Brain, ShieldAlert, Antenna, Newspaper } from "lucide-react";
 import { API_CONFIG } from "@/config/api";
 
@@ -243,6 +244,14 @@ export default function Dashboard() {
         </div>
         
         <div className="flex items-center gap-6">
+          {/* Analysis Dashboard Link */}
+          <Link href="/analysis">
+            <button className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-blue-300 font-bold tracking-widest text-sm rounded-lg border border-blue-900 shadow-[0_0_10px_rgba(59,130,246,0.3)] transition-all flex items-center gap-2">
+              <Brain className="w-4 h-4" />
+              ANALYTICS & HEALTH
+            </button>
+          </Link>
+          
           {/* Trading Mode Toggle */}
           <div className="flex items-center gap-3 bg-zinc-950 p-2 rounded-lg border border-zinc-700">
             <span className={`text-sm font-bold tracking-widest ${data?.trading_mode === "PAPER" ? "text-blue-400" : "text-zinc-500"}`}>PAPER</span>

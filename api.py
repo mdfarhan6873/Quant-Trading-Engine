@@ -141,5 +141,98 @@ async def set_trading_mode(payload: ModeUpdate):
     logger.warning(f"TRADING MODE SWITCHED TO: {target_mode}")
     return {"status": "success", "message": f"Trading mode set to {target_mode}"}
 
+import sqlite3
+import os
+
+@app.get("/api/trades")
+async def get_trades(mode: str = "ALL", start_date: str = None, end_date: str = None):
+    """Fetch trade logs for analytics dashboard."""
+    db_path = os.path.join(os.path.dirname(__file__), "trading_records.db")
+    if not os.path.exists(db_path):
+        return {"trades": []}
+        
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        query = "SELECT * FROM trade_logs WHERE 1=1"
+        params = []
+        if mode != "ALL":
+            query += " AND mode = ?"
+            params.append(mode.upper())
+        if start_date:
+            query += " AND timestamp >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND timestamp <= ?"
+            params.append(end_date)
+            
+        query += " ORDER BY timestamp DESC LIMIT 500"
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        trades = [dict(row) for row in rows]
+        conn.close()
+        return {"trades": trades}
+    except Exception as e:
+        logger.error(f"Failed to fetch trades: {e}")
+        return {"trades": [], "error": str(e)}
+
+@app.get("/api/system/health")
+async def get_system_health():
+    """Run diagnostics for the analytics dashboard."""
+    health = {
+        "database_connected": False,
+        "redis_connected": False,
+        "broker_configured": False,
+        "data_receiving": False,
+        "errors": []
+    }
+    
+    # 1. Check DB
+    db_path = os.path.join(os.path.dirname(__file__), "trading_records.db")
+    if os.path.exists(db_path):
+        health["database_connected"] = True
+    else:
+        health["errors"].append("SQLite Database 'trading_records.db' not found.")
+        
+    # 2. Check Redis & Data
+    try:
+        ping = await redis_db.redis.ping()
+        health["redis_connected"] = ping
+        # Check if we have recent ticks
+        keys = await redis_db.redis.keys("LTP:*")
+        if keys:
+            health["data_receiving"] = True
+        else:
+            health["errors"].append("Redis connected but no market data (LTP) found. Is Upstox streaming?")
+    except Exception as e:
+        health["errors"].append(f"Redis connection failed: {e}")
+        
+    # 3. Check Broker
+    has_groww = bool(getattr(settings, "GROWW_API_KEY", ""))
+    has_dhan = bool(getattr(settings, "DHAN_ACCESS_TOKEN", ""))
+    if has_groww or has_dhan:
+        health["broker_configured"] = True
+    else:
+        health["errors"].append("No Live Broker (Groww/Dhan) API keys found in config.")
+        
+    return health
+
+@app.get("/api/system/logs")
+async def get_system_logs():
+    """Fetch recent system logs."""
+    log_path = os.path.join(os.path.dirname(__file__), "gini_trading.log")
+    if not os.path.exists(log_path):
+        return {"logs": ["Log file not found."]}
+        
+    try:
+        # Read last 100 lines
+        with open(log_path, 'r') as f:
+            lines = f.readlines()
+            return {"logs": lines[-100:]}
+    except Exception as e:
+        return {"logs": [f"Failed to read logs: {e}"]}
+
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=False)

@@ -192,7 +192,7 @@ class RiskManager:
                 price = json.loads(tick_raw).get("ltp", 0.0)
                 
             # Log to SQLite
-            log_trade(symbol, action, qty, price, confidence, reason, pnl_realized)
+            log_trade(symbol, action, qty, price, confidence, reason, pnl_realized, self.mode)
             
         return order_id is not None
 
