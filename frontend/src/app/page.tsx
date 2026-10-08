@@ -130,7 +130,7 @@ export default function Dashboard() {
       <header className="flex justify-between items-center mb-4 bg-zinc-900 border border-zinc-700 p-4 rounded-lg shadow-2xl">
         <div className="flex flex-col">
           <div className="flex items-center">
-            <Image src="/gini.png" alt="Jini AI Logo" width={200} height={50} className="h-14 w-auto object-contain" />
+            <img src="/gini.png" alt="Jini AI Logo" className="h-14 w-auto object-contain" />
           </div>
           <p className="text-sm text-zinc-300 mt-2 tracking-widest uppercase">
             ENGINE STATUS: {data?.status === "ONLINE" ? <span className="text-emerald-500 font-bold drop-shadow-[0_0_5px_rgba(16,185,129,0.8)]">ONLINE [ARMED]</span> : <span className="text-red-500 font-bold">OFFLINE</span>}
