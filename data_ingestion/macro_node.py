@@ -82,7 +82,11 @@ class MacroDataNode:
         # 1. Indian Markets RSS
         try:
             feed = feedparser.parse(self.rss_url)
-            news_data["indian_markets"] = [entry.title for entry in feed.entries[:3]]
+            # Send both title and summary to the AI engine
+            news_data["indian_markets"] = [
+                {"title": entry.title, "summary": entry.get("summary", "")}
+                for entry in feed.entries[:3]
+            ]
         except Exception as e:
             logger.error(f"RSS Feed failed: {e}")
             
@@ -94,7 +98,10 @@ class MacroDataNode:
                     response = await client.get(url, timeout=5.0)
                     if response.status_code == 200:
                         articles = response.json().get("articles", [])
-                        news_data["global_breaking"] = [a["title"] for a in articles[:3]]
+                        news_data["global_breaking"] = [
+                            {"title": a["title"], "summary": a.get("description", "")} 
+                            for a in articles[:3]
+                        ]
             except Exception as e:
                 logger.error(f"NewsAPI failed: {e}")
                 

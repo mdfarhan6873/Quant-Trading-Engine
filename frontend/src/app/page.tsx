@@ -434,16 +434,22 @@ export default function Dashboard() {
           <div className="mt-4 pt-4 border-t border-zinc-700 h-32 overflow-y-auto">
             <p className="text-xs text-zinc-300 font-bold mb-2 tracking-wide">LIVE BREAKING NEWS STREAM</p>
             <ul className="text-xs text-zinc-200 space-y-2 font-medium">
-              {mState?.indian_news?.map((n: string, i: number) => (
+              {mState?.indian_news?.map((n: any, i: number) => (
                 <li key={`ind-${i}`} className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800">
                   <span className="text-orange-500 mt-0.5 text-sm leading-none">🇮🇳</span>
-                  <span className="truncate w-full" title={n}>{n}</span>
+                  <div className="flex flex-col w-full overflow-hidden">
+                    <span className="truncate w-full text-zinc-200" title={n.title || n}>{n.title || n}</span>
+                    {n.summary && <span className="text-zinc-400 text-[10px] truncate w-full mt-0.5" title={n.summary}>{n.summary}</span>}
+                  </div>
                 </li>
               ))}
-              {mState?.breaking_news?.map((n: string, i: number) => (
+              {mState?.breaking_news?.map((n: any, i: number) => (
                 <li key={`glo-${i}`} className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800">
                   <span className="text-blue-500 mt-0.5 text-sm leading-none">🌍</span>
-                  <span className="truncate w-full" title={n}>{n}</span>
+                  <div className="flex flex-col w-full overflow-hidden">
+                    <span className="truncate w-full text-zinc-200" title={n.title || n}>{n.title || n}</span>
+                    {n.summary && <span className="text-zinc-400 text-[10px] truncate w-full mt-0.5" title={n.summary}>{n.summary}</span>}
+                  </div>
                 </li>
               ))}
               {(!mState?.indian_news?.length && !mState?.breaking_news?.length) && (
