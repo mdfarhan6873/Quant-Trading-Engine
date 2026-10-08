@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, MapPin, Newspaper, Zap, Brain, Activity, TrendingUp, ShieldAlert, Navigation } from "lucide-react";
+import { Globe, MapPin, Newspaper, Zap, Brain, Activity, TrendingUp, ShieldAlert, Navigation, Antenna } from "lucide-react";
 
 interface Position {
   entry_price: number;
@@ -140,9 +140,9 @@ export default function Dashboard() {
         
         <button 
           onClick={triggerKillSwitch}
-          className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded font-black text-lg tracking-widest shadow-[0_0_20px_rgba(220,38,38,0.6)] transition-all hover:scale-105 active:scale-95"
+          className="bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded font-black text-lg tracking-widest shadow-[0_0_20px_rgba(220,38,38,0.6)] transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
         >
-          🚨 KILL SWITCH
+          <ShieldAlert size={24} /> KILL SWITCH
         </button>
       </header>
 
@@ -253,7 +253,7 @@ export default function Dashboard() {
           <div className="flex-1 overflow-y-auto">
             {(!data?.positions || Object.keys(data.positions).length === 0) ? (
               <div className="flex flex-col items-center justify-center h-full text-zinc-300 space-y-2 font-semibold">
-                <span className="text-3xl opacity-80">📡</span>
+                <Antenna className="w-10 h-10 opacity-80 text-blue-400 mb-2 animate-pulse" />
                 <span className="italic tracking-wider text-base">Scanning for high-probability setups...</span>
               </div>
             ) : (
@@ -309,7 +309,7 @@ export default function Dashboard() {
         <div className="bg-black border border-zinc-700 p-5 rounded-lg shadow-xl relative overflow-hidden">
           <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl"></div>
           <h2 className="text-white text-sm font-bold mb-4 border-b border-zinc-700 pb-2 flex items-center gap-2 tracking-wide">
-            🧠 JINI AI CONSENSUS TERMINAL
+            <Brain className="text-pink-400" size={18} /> JINI AI CONSENSUS TERMINAL
           </h2>
           
           {data?.last_signal ? (
