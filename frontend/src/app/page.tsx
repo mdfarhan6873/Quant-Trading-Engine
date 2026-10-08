@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, MapPin, Brain, ShieldAlert, Antenna } from "lucide-react";
+import { Globe, MapPin, Brain, ShieldAlert, Antenna, Newspaper } from "lucide-react";
 import { API_CONFIG } from "@/config/api";
 
 interface Position {
@@ -59,7 +59,7 @@ interface DashboardData {
 
 const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: string, date?: string } | string, type: 'india' | 'global' }) => {
   const [expanded, setExpanded] = useState(false);
-  const Icon = type === 'india' ? MapPin : Globe;
+  const Icon = Newspaper;
   const iconColor = type === 'india' ? 'text-orange-500' : 'text-blue-500';
   
   const isObj = typeof n === 'object' && n !== null;
