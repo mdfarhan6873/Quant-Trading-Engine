@@ -15,6 +15,7 @@ interface DashboardData {
   status: string;
   market_state: {
     market_time?: string;
+    is_market_open?: boolean;
     indices?: {
       NIFTY50?: { ltp: number; volume: number; delta_volume: number; vwap: number; futures_premium: number };
       BANKNIFTY?: { ltp: number; volume: number; delta_volume: number; vwap: number; futures_premium: number };
@@ -327,19 +328,35 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-black/50 p-3 rounded border border-zinc-600">
               <p className="text-xs text-zinc-300 mb-1 font-semibold">NIFTY CVD</p>
-              <p className={`text-xl font-bold ${flow?.NIFTY_CVD && flow.NIFTY_CVD > 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(flow?.NIFTY_CVD, 0)}</p>
+              {mState?.is_market_open === false ? (
+                <p className="text-[10px] text-red-400 font-bold mt-1 uppercase">Unavailable (Market Closed)</p>
+              ) : (
+                <p className={`text-xl font-bold ${flow?.NIFTY_CVD && flow.NIFTY_CVD > 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(flow?.NIFTY_CVD, 0)}</p>
+              )}
             </div>
             <div className="bg-black/50 p-3 rounded border border-zinc-600">
               <p className="text-xs text-zinc-300 mb-1 font-semibold">BANK CVD</p>
-              <p className={`text-xl font-bold ${flow?.BANKNIFTY_CVD && flow.BANKNIFTY_CVD > 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(flow?.BANKNIFTY_CVD, 0)}</p>
+              {mState?.is_market_open === false ? (
+                <p className="text-[10px] text-red-400 font-bold mt-1 uppercase">Unavailable (Market Closed)</p>
+              ) : (
+                <p className={`text-xl font-bold ${flow?.BANKNIFTY_CVD && flow.BANKNIFTY_CVD > 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(flow?.BANKNIFTY_CVD, 0)}</p>
+              )}
             </div>
             <div className="bg-black/50 p-3 rounded border border-zinc-600">
               <p className="text-xs text-zinc-300 mb-1 font-semibold">NIFTY GEX (Gamma)</p>
-              <p className={`text-xl font-bold ${opt?.NIFTY_GEX && opt.NIFTY_GEX > 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(opt?.NIFTY_GEX, 0)}</p>
+              {mState?.is_market_open === false ? (
+                <p className="text-[10px] text-red-400 font-bold mt-1 uppercase">Unavailable (Market Closed)</p>
+              ) : (
+                <p className={`text-xl font-bold ${opt?.NIFTY_GEX && opt.NIFTY_GEX > 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(opt?.NIFTY_GEX, 0)}</p>
+              )}
             </div>
             <div className="bg-black/50 p-3 rounded border border-zinc-600">
               <p className="text-xs text-zinc-300 mb-1 font-semibold">A/D RATIO</p>
-              <p className={`text-xl font-bold ${flow?.AD_RATIO && flow.AD_RATIO >= 1 ? "text-emerald-400" : "text-red-400"}`}>{fmt(flow?.AD_RATIO)}</p>
+              {mState?.is_market_open === false ? (
+                <p className="text-[10px] text-red-400 font-bold mt-1 uppercase">Unavailable (Market Closed)</p>
+              ) : (
+                <p className={`text-xl font-bold ${flow?.AD_RATIO && flow.AD_RATIO >= 1 ? "text-emerald-400" : "text-red-400"}`}>{fmt(flow?.AD_RATIO)}</p>
+              )}
             </div>
           </div>
         </div>
@@ -527,24 +544,36 @@ export default function Dashboard() {
               </div>
               <div className="bg-black/60 p-2 rounded border border-zinc-600">
                 <p className="text-[10px] text-zinc-400 font-semibold mb-1">FII CASH (Cr)</p>
-                <p className={`text-sm font-black ${mState?.institutional?.fii_cash && mState.institutional.fii_cash > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {mState?.institutional?.fii_cash ? (mState.institutional.fii_cash > 0 ? '+' : '') + fmt(mState.institutional.fii_cash) : '---'}
-                </p>
+                {!mState?.institutional?.fii_cash ? (
+                  <p className="text-[10px] text-red-400 font-bold mt-1">AWAITING EOD</p>
+                ) : (
+                  <p className={`text-sm font-black ${mState?.institutional?.fii_cash && mState.institutional.fii_cash > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {mState.institutional.fii_cash > 0 ? '+' : ''}{fmt(mState.institutional.fii_cash)}
+                  </p>
+                )}
               </div>
             </div>
             
             <div className="grid grid-cols-4 gap-3 mb-4 text-center">
               <div className="bg-black/60 p-2 rounded border border-zinc-600">
                 <p className="text-[10px] text-zinc-400 font-semibold mb-1">DII CASH (Cr)</p>
-                <p className={`text-sm font-black ${mState?.institutional?.dii_cash && mState.institutional.dii_cash > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {mState?.institutional?.dii_cash ? (mState.institutional.dii_cash > 0 ? '+' : '') + fmt(mState.institutional.dii_cash) : '---'}
-                </p>
+                {!mState?.institutional?.dii_cash ? (
+                  <p className="text-[10px] text-red-400 font-bold mt-1">AWAITING EOD</p>
+                ) : (
+                  <p className={`text-sm font-black ${mState?.institutional?.dii_cash && mState.institutional.dii_cash > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {mState.institutional.dii_cash > 0 ? '+' : ''}{fmt(mState.institutional.dii_cash)}
+                  </p>
+                )}
               </div>
               <div className="bg-black/60 p-2 rounded border border-zinc-600">
                 <p className="text-[10px] text-zinc-400 font-semibold mb-1">FII IDX FUT</p>
-                <p className={`text-sm font-black ${mState?.institutional?.fii_index_futures && mState.institutional.fii_index_futures > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {mState?.institutional?.fii_index_futures ? (mState.institutional.fii_index_futures > 0 ? '+' : '') + fmt(mState.institutional.fii_index_futures) : '---'}
-                </p>
+                {!mState?.institutional?.fii_index_futures ? (
+                  <p className="text-[10px] text-red-400 font-bold mt-1">AWAITING EOD</p>
+                ) : (
+                  <p className={`text-sm font-black ${mState?.institutional?.fii_index_futures && mState.institutional.fii_index_futures > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {mState.institutional.fii_index_futures > 0 ? '+' : ''}{fmt(mState.institutional.fii_index_futures)}
+                  </p>
+                )}
               </div>
               <div className="bg-black/60 p-2 rounded border border-zinc-600 col-span-2">
                 <p className="text-[10px] text-zinc-400 font-semibold mb-1">PREV CLOSE (NF | BNF)</p>

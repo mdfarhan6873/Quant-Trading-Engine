@@ -51,12 +51,9 @@ class StrategyBrain:
                 # Check if market is open
                 state_dict = json.loads(market_state)
                 is_open = state_dict.get("is_market_open", True)
-                
-                # Adjust polling interval
-                if not is_open:
-                    self.polling_interval = 3600.0  # Poll every 1 hour when closed to save API quotas
-                else:
-                    self.polling_interval = 15.0  # Normal active polling
+                # The polling interval should remain fast (e.g., 5 seconds) so the UI gets fresh state updates 
+                # (like macroeconomic data polling from background nodes).
+                self.polling_interval = 5.0
                 
                 # Fetch dynamic system prompt based on market state
                 system_prompt = await self.state_builder.get_system_prompt(is_open=is_open)
@@ -74,7 +71,10 @@ class StrategyBrain:
                 
                 time_since_last_call = time.time() - self.last_llm_call
                 
-                if state_hash == self.last_state_hash and time_since_last_call < 60.0 and not has_open_positions:
+                if not is_open:
+                    logger.debug("Market is closed. Updating state but skipping LLM query to save API quotas.")
+                    decision = None
+                elif state_hash == self.last_state_hash and time_since_last_call < 60.0 and not has_open_positions:
                     logger.debug("State identical to previous cycle. Skipping LLM query to preserve rate limits (10/10 Architecture).")
                     decision = None
                 else:

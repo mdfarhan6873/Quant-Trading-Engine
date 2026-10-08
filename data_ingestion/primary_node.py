@@ -281,6 +281,30 @@ class PrimaryDataNode:
                 logger.critical("UPSTOX_ACCESS_TOKEN is missing! Please run upstox_auth.py to get it.")
                 return
                 
+            # Pre-fetch initial market state (vital when market is closed and WebSocket is silent)
+            try:
+                logger.info("Fetching initial REST quotes to populate offline data...")
+                market_api = upstox_client.MarketQuoteApi(self.api_client)
+                quote_keys = ",".join(instrument_keys[:50]) # API limit might be 50 or 500, keeping safe
+                quote_res = market_api.get_full_market_quote(symbol=quote_keys, api_version="2.0")
+                if quote_res.status == "success":
+                    for key, details in quote_res.data.items():
+                        instrument_token = details.instrument_token
+                        internal_symbol = self.token_manager.key_to_symbol.get(instrument_token, instrument_token)
+                        
+                        standardized_tick = {
+                            "symbol": internal_symbol,
+                            "ltp": details.last_price or 0.0,
+                            "close": details.ohlc.close if hasattr(details, 'ohlc') and details.ohlc else 0.0,
+                            "volume": getattr(details, 'volume', 0) or 0,
+                            "oi": getattr(details, 'oi', 0) or 0,
+                            "bid_ask": {"depth": []}
+                        }
+                        await redis_db.set_json(f"LTP:{internal_symbol}", standardized_tick)
+                    logger.info("Initial REST quotes populated successfully.")
+            except Exception as e:
+                logger.warning(f"Failed to fetch initial REST quotes: {e}")
+
             asyncio.create_task(self.listen_for_subscriptions())
             
             # Start streamer in background thread

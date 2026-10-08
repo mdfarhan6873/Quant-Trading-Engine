@@ -169,8 +169,10 @@ class StateBuilder:
             fii_dii_raw = await redis_db.redis.get("FII_DII_DATA")
             fii_dii = json.loads(fii_dii_raw) if fii_dii_raw else {}
             
-            prev_ohlc_raw = await redis_db.redis.get("PREV_DAY_OHLC")
-            prev_ohlc = json.loads(prev_ohlc_raw) if prev_ohlc_raw else {}
+            prev_ohlc = {
+                "NIFTY50": {"close": nifty_tick.get("close", 0.0) if 'nifty_tick' in locals() else 0.0},
+                "BANKNIFTY": {"close": bank_tick.get("close", 0.0) if 'bank_tick' in locals() else 0.0}
+            }
 
             market_time = datetime.datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M:%S')
             market_open = is_market_open()
