@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Globe, MapPin, Newspaper, Zap, Brain, Activity, TrendingUp, ShieldAlert, Navigation, Antenna } from "lucide-react";
+import { Globe, MapPin, Brain, ShieldAlert, Antenna } from "lucide-react";
+import { API_CONFIG } from "@/config/api";
 
 interface Position {
   entry_price: number;
@@ -44,8 +45,8 @@ interface DashboardData {
       fii_index_futures?: number;
     };
     prev_ohlc?: Record<string, { open: number; high: number; low: number; close: number }>;
-    breaking_news?: string[];
-    indian_news?: string[];
+    breaking_news?: Array<{ title?: string; summary?: string; link?: string } | string>;
+    indian_news?: Array<{ title?: string; summary?: string; link?: string } | string>;
   };
   positions: Record<string, Position>;
   last_signal?: {
@@ -56,11 +57,16 @@ interface DashboardData {
   };
 }
 
-const NewsItem = ({ n, type }: { n: any, type: 'india' | 'global' }) => {
+const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: string } | string, type: 'india' | 'global' }) => {
   const [expanded, setExpanded] = useState(false);
   const Icon = type === 'india' ? MapPin : Globe;
   const iconColor = type === 'india' ? 'text-orange-500' : 'text-blue-500';
   
+  const isObj = typeof n === 'object' && n !== null;
+  const title = isObj ? n.title : n;
+  const summary = isObj ? n.summary : undefined;
+  const link = isObj ? n.link : undefined;
+
   return (
     <li 
       className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800 cursor-pointer hover:bg-black/50 transition-colors"
@@ -68,29 +74,29 @@ const NewsItem = ({ n, type }: { n: any, type: 'india' | 'global' }) => {
     >
       <Icon className={`${iconColor} mt-0.5 shrink-0`} size={16} />
       <div className="flex flex-col w-full overflow-hidden">
-        {n.link ? (
+        {link ? (
           <a 
-            href={n.link} 
+            href={link} 
             target="_blank" 
             rel="noopener noreferrer" 
             className={`hover:underline hover:text-blue-400 w-full text-zinc-200 ${expanded ? '' : 'truncate'}`}
             onClick={(e) => e.stopPropagation()}
             title="Read full article"
           >
-            {n.title || n}
+            {title}
           </a>
         ) : (
-          <span className={`w-full text-zinc-200 ${expanded ? '' : 'truncate'}`} title={n.title || n}>
-            {n.title || n}
+          <span className={`w-full text-zinc-200 ${expanded ? '' : 'truncate'}`} title={typeof title === 'string' ? title : ""}>
+            {title}
           </span>
         )}
         
-        {n.summary && (
+        {summary && (
           <span 
             className={`text-zinc-400 text-[10px] w-full mt-0.5 ${expanded ? 'line-clamp-none whitespace-normal' : 'line-clamp-2'}`}
             title={expanded ? "" : "Click to expand summary"}
           >
-            {n.summary}
+            {summary}
           </span>
         )}
       </div>
@@ -102,34 +108,54 @@ export default function Dashboard() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    // Connect to FastAPI WebSocket
-    const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+    let ws: WebSocket;
+    let reconnectTimer: NodeJS.Timeout;
 
-    ws.onopen = () => setConnected(true);
+    const connectWebSocket = () => {
+      ws = new WebSocket(API_CONFIG.WS_URL);
 
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        setData(payload);
-      } catch (err) {
-        console.error("Error parsing websocket data", err);
-      }
+      ws.onopen = () => {
+        setConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          setData(payload);
+        } catch (err) {
+          console.error("Error parsing websocket data", err);
+        }
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        // Attempt to auto-reconnect after 3 seconds
+        reconnectTimer = setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        ws.close();
+      };
     };
 
-    ws.onclose = () => setConnected(false);
+    connectWebSocket();
 
-    return () => ws.close();
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
   }, []);
 
   const triggerKillSwitch = async () => {
     if (confirm("🚨 KILL SWITCH! 🚨\nAre you sure you want to trigger the KILL SWITCH? This will square off all positions at market price and halt the engine.")) {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/kill_switch", {
+        const res = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.KILL_SWITCH}`, {
           method: "POST"
         });
         const result = await res.json();
         alert(result.message);
-      } catch (err) {
+      } catch {
         alert("Failed to trigger Kill Switch!");
       }
     }
@@ -155,7 +181,7 @@ export default function Dashboard() {
   const fmt = (num: number | undefined, dec = 2) => num ? num.toFixed(dec) : "---";
 
   // Filter option chain to show top 5 active strikes based on volume
-  const getActiveOptions = (chainData: Record<string, any> | undefined) => {
+  const getActiveOptions = (chainData: Record<string, { ltp: number; volume: number; oi: number; delta_oi: number; iv: number }> | undefined) => {
     if (!chainData) return [];
     return Object.entries(chainData)
       .map(([strike, data]) => ({ strike, ...data }))
@@ -171,6 +197,7 @@ export default function Dashboard() {
       <header className="flex justify-between items-center mb-4 bg-zinc-900 border border-zinc-700 p-4 rounded-lg shadow-2xl">
         <div className="flex flex-col">
           <div className="flex items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/gini.png" alt="Jini AI Logo" className="h-14 w-auto object-contain" />
           </div>
           <p className="text-sm text-zinc-300 mt-2 tracking-widest uppercase">
@@ -377,7 +404,7 @@ export default function Dashboard() {
               </div>
               <div className="bg-zinc-900/80 p-4 rounded border border-zinc-600 mt-2">
                 <span className="block text-zinc-200 font-bold mb-2 text-sm">JINI RATIONALE:</span>
-                <span className="text-emerald-300 font-medium leading-relaxed text-sm block bg-black/50 p-3 rounded border border-emerald-900/50">"{data.last_signal.reason}"</span>
+                <span className="text-emerald-300 font-medium leading-relaxed text-sm block bg-black/50 p-3 rounded border border-emerald-900/50">&quot;{data.last_signal.reason}&quot;</span>
               </div>
             </div>
           ) : (
@@ -475,10 +502,10 @@ export default function Dashboard() {
           <div className="mt-4 pt-4 border-t border-zinc-700 h-32 overflow-y-auto">
             <p className="text-xs text-zinc-300 font-bold mb-2 tracking-wide">LIVE BREAKING NEWS STREAM</p>
             <ul className="text-xs text-zinc-200 space-y-2 font-medium">
-              {mState?.indian_news?.map((n: any, i: number) => (
+              {mState?.indian_news?.map((n: { title?: string, summary?: string, link?: string } | string, i: number) => (
                 <NewsItem key={`ind-${i}`} n={n} type="india" />
               ))}
-              {mState?.breaking_news?.map((n: any, i: number) => (
+              {mState?.breaking_news?.map((n: { title?: string, summary?: string, link?: string } | string, i: number) => (
                 <NewsItem key={`glo-${i}`} n={n} type="global" />
               ))}
               {(!mState?.indian_news?.length && !mState?.breaking_news?.length) && (
