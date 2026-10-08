@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
+import { Globe, MapPin, Newspaper, Zap, Brain, Activity, TrendingUp, ShieldAlert, Navigation } from "lucide-react";
 
 interface Position {
   entry_price: number;
@@ -436,7 +436,7 @@ export default function Dashboard() {
             <ul className="text-xs text-zinc-200 space-y-2 font-medium">
               {mState?.indian_news?.map((n: any, i: number) => (
                 <li key={`ind-${i}`} className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800">
-                  <span className="text-orange-500 mt-0.5 text-sm leading-none">🇮🇳</span>
+                  <MapPin className="text-orange-500 mt-0.5 shrink-0" size={16} />
                   <div className="flex flex-col w-full overflow-hidden">
                     <span className="truncate w-full text-zinc-200" title={n.title || n}>{n.title || n}</span>
                     {n.summary && <span className="text-zinc-400 text-[10px] truncate w-full mt-0.5" title={n.summary}>{n.summary}</span>}
@@ -445,7 +445,7 @@ export default function Dashboard() {
               ))}
               {mState?.breaking_news?.map((n: any, i: number) => (
                 <li key={`glo-${i}`} className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800">
-                  <span className="text-blue-500 mt-0.5 text-sm leading-none">🌍</span>
+                  <Globe className="text-blue-500 mt-0.5 shrink-0" size={16} />
                   <div className="flex flex-col w-full overflow-hidden">
                     <span className="truncate w-full text-zinc-200" title={n.title || n}>{n.title || n}</span>
                     {n.summary && <span className="text-zinc-400 text-[10px] truncate w-full mt-0.5" title={n.summary}>{n.summary}</span>}
