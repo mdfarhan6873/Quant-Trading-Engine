@@ -68,10 +68,10 @@ class OrderflowEngine:
         # Tick goes up -> Buy Volume (+), Tick goes down -> Sell Volume (-)
         if prev_tick_str and tick_volume > 0:
             direction = 1 if ltp > prev_ltp else (-1 if ltp < prev_ltp else 0)
-            if "NIFTY" in symbol and "BANK" not in symbol:
+            if symbol == "FUT:NIFTY:CURR":
                 self.cumulative_volume_delta["NIFTY50"] += (direction * tick_volume)
                 await redis_db.set_json("METRIC:CVD:NIFTY50", {"cvd": self.cumulative_volume_delta["NIFTY50"]})
-            elif "BANKNIFTY" in symbol:
+            elif symbol == "FUT:BANKNIFTY:CURR":
                 self.cumulative_volume_delta["BANKNIFTY"] += (direction * tick_volume)
                 await redis_db.set_json("METRIC:CVD:BANKNIFTY", {"cvd": self.cumulative_volume_delta["BANKNIFTY"]})
 
