@@ -45,8 +45,8 @@ interface DashboardData {
       fii_index_futures?: number;
     };
     prev_ohlc?: Record<string, { open: number; high: number; low: number; close: number }>;
-    breaking_news?: Array<{ title?: string; summary?: string; link?: string } | string>;
-    indian_news?: Array<{ title?: string; summary?: string; link?: string } | string>;
+    breaking_news?: Array<{ title?: string; summary?: string; link?: string; date?: string } | string>;
+    indian_news?: Array<{ title?: string; summary?: string; link?: string; date?: string } | string>;
   };
   positions: Record<string, Position>;
   last_signal?: {
@@ -57,7 +57,7 @@ interface DashboardData {
   };
 }
 
-const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: string } | string, type: 'india' | 'global' }) => {
+const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: string, date?: string } | string, type: 'india' | 'global' }) => {
   const [expanded, setExpanded] = useState(false);
   const Icon = type === 'india' ? MapPin : Globe;
   const iconColor = type === 'india' ? 'text-orange-500' : 'text-blue-500';
@@ -66,6 +66,11 @@ const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: s
   const title = isObj ? n.title : n;
   const summary = isObj ? n.summary : undefined;
   const link = isObj ? n.link : undefined;
+  const date = isObj ? n.date : undefined;
+
+  const formattedDate = date ? new Date(date).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  }) : null;
 
   return (
     <li 
@@ -91,6 +96,12 @@ const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: s
           </span>
         )}
         
+        {formattedDate && (
+          <span className="text-zinc-500 text-[10px] w-full mt-0.5">
+            {formattedDate}
+          </span>
+        )}
+
         {summary && (
           <span 
             className={`text-zinc-400 text-[10px] w-full mt-0.5 ${expanded ? 'line-clamp-none whitespace-normal' : 'line-clamp-2'}`}
