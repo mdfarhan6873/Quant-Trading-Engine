@@ -4,6 +4,7 @@ import json
 from typing import Dict, Any, Optional
 from core.redis_client import redis_db
 from core.config import settings
+from core.database import init_db, log_trade
 from execution_engine.paper_trader import PaperTrader
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,8 @@ class RiskManager:
 
     async def initialize(self) -> bool:
         """Arms the risk manager and authenticates production routers if needed."""
+        init_db()  # Initialize SQLite database
+        
         if self.mode == "LIVE":
             success = await self.groww_router.login()
             if not success:
@@ -93,12 +96,40 @@ class RiskManager:
             
         action = decision.get("action", "HOLD")
         symbol = decision.get("symbol", "")
-        qty = decision.get("qty", 0)
+        confidence = decision.get("confidence", 0)
+        reason = decision.get("reason", "No reason provided")
+        
+        # Dynamic Quantity Sizing
+        if action == "BUY":
+            base_lot = 15 if "BANKNIFTY" in symbol else 25
+            lots = 1
+            if confidence >= 95:
+                # Dynamic scaling: Max 3 lots, but limited by available capital
+                max_capital = getattr(settings, "MAX_CAPITAL", 50000)  # Default 50k INR
+                # Fetch current option price to calculate margin
+                tick_raw = await redis_db.redis.get(f"LTP:{symbol}")
+                price = json.loads(tick_raw).get("ltp", 0.0) if tick_raw else 0.0
+                
+                if price > 0:
+                    max_affordable_lots = int(max_capital / (price * base_lot))
+                    lots = min(3, max_affordable_lots) # Cap at 3 lots or whatever funds allow
+                    if lots < 1: 
+                        lots = 1 # Force at least 1 lot if we want to trade, though we might hit margin error at broker
+                else:
+                    lots = 3 # If price unknown, assume 3 lots
+            qty = lots * base_lot
+        else:
+            qty = decision.get("qty", 0)
+            # If SELL, ensure we sell exact open quantity
+            pos_raw = await redis_db.redis.get("PAPER_POSITIONS") if self.mode == "PAPER" else None
+            if pos_raw:
+                positions = json.loads(pos_raw)
+                if symbol in positions:
+                    qty = abs(positions[symbol].get("net_qty", qty))
         
         if action == "HOLD" or qty <= 0:
             return True
             
-        confidence = decision.get("confidence", 0)
         if action in ["BUY", "SELL"] and confidence < 90:
             logger.info(f"Trade discarded due to low AI confidence ({confidence}%). Minimum required is 90%.")
             return True # Discard trade safely
@@ -134,16 +165,36 @@ class RiskManager:
         # 3. Route to Execution Engine
         logger.info(f"RISK APPROVED: Executing {action} {qty} {symbol}")
         
+        order_id = None
         if self.mode == "PAPER":
             order_id = await self.paper_trader.place_order(symbol, qty, action, "MKT")
-            return order_id is not None
-            
         elif self.mode == "LIVE":
             order_id = await self.groww_router.place_order(symbol, qty, action, "MKT")
             if not order_id:
                 logger.error("Primary Router Failed. Routing to Fallback (Dhan)...")
                 order_id = await self.dhan_router.place_order(symbol, qty, action, "MKT")
-            return order_id is not None
+                
+        # 4. Database Logging
+        if order_id:
+            # For SELL, calculate PnL to log (Paper only for now, fetch from broker API if LIVE)
+            pnl_realized = 0.0
+            if action == "SELL" and self.mode == "PAPER":
+                pos_raw = await redis_db.redis.get("PAPER_POSITIONS")
+                if pos_raw:
+                    positions = json.loads(pos_raw)
+                    if symbol in positions:
+                        pnl_realized = positions[symbol].get("realized_pnl", 0.0)
+                        
+            # Get latest price for logging
+            price = 0.0
+            tick_raw = await redis_db.redis.get(f"LTP:{symbol}")
+            if tick_raw:
+                price = json.loads(tick_raw).get("ltp", 0.0)
+                
+            # Log to SQLite
+            log_trade(symbol, action, qty, price, confidence, reason, pnl_realized)
+            
+        return order_id is not None
 
     async def monitor_open_positions(self):
         """
