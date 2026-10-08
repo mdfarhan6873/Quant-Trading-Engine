@@ -54,8 +54,50 @@ interface DashboardData {
     confidence: number;
     reason: string;
   };
+  };
 }
 
+const NewsItem = ({ n, type }: { n: any, type: 'india' | 'global' }) => {
+  const [expanded, setExpanded] = useState(false);
+  const Icon = type === 'india' ? MapPin : Globe;
+  const iconColor = type === 'india' ? 'text-orange-500' : 'text-blue-500';
+  
+  return (
+    <li 
+      className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800 cursor-pointer hover:bg-black/50 transition-colors"
+      onClick={() => setExpanded(!expanded)}
+    >
+      <Icon className={`${iconColor} mt-0.5 shrink-0`} size={16} />
+      <div className="flex flex-col w-full overflow-hidden">
+        {n.link ? (
+          <a 
+            href={n.link} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className={`hover:underline hover:text-blue-400 w-full text-zinc-200 ${expanded ? '' : 'truncate'}`}
+            onClick={(e) => e.stopPropagation()}
+            title="Read full article"
+          >
+            {n.title || n}
+          </a>
+        ) : (
+          <span className={`w-full text-zinc-200 ${expanded ? '' : 'truncate'}`} title={n.title || n}>
+            {n.title || n}
+          </span>
+        )}
+        
+        {n.summary && (
+          <span 
+            className={`text-zinc-400 text-[10px] w-full mt-0.5 ${expanded ? 'line-clamp-none whitespace-normal' : 'line-clamp-2'}`}
+            title={expanded ? "" : "Click to expand summary"}
+          >
+            {n.summary}
+          </span>
+        )}
+      </div>
+    </li>
+  );
+};
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [connected, setConnected] = useState(false);
@@ -435,22 +477,10 @@ export default function Dashboard() {
             <p className="text-xs text-zinc-300 font-bold mb-2 tracking-wide">LIVE BREAKING NEWS STREAM</p>
             <ul className="text-xs text-zinc-200 space-y-2 font-medium">
               {mState?.indian_news?.map((n: any, i: number) => (
-                <li key={`ind-${i}`} className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800">
-                  <MapPin className="text-orange-500 mt-0.5 shrink-0" size={16} />
-                  <div className="flex flex-col w-full overflow-hidden">
-                    <span className="truncate w-full text-zinc-200" title={n.title || n}>{n.title || n}</span>
-                    {n.summary && <span className="text-zinc-400 text-[10px] truncate w-full mt-0.5" title={n.summary}>{n.summary}</span>}
-                  </div>
-                </li>
+                <NewsItem key={`ind-${i}`} n={n} type="india" />
               ))}
               {mState?.breaking_news?.map((n: any, i: number) => (
-                <li key={`glo-${i}`} className="flex gap-2 items-start bg-black/30 p-2 rounded border border-zinc-800">
-                  <Globe className="text-blue-500 mt-0.5 shrink-0" size={16} />
-                  <div className="flex flex-col w-full overflow-hidden">
-                    <span className="truncate w-full text-zinc-200" title={n.title || n}>{n.title || n}</span>
-                    {n.summary && <span className="text-zinc-400 text-[10px] truncate w-full mt-0.5" title={n.summary}>{n.summary}</span>}
-                  </div>
-                </li>
+                <NewsItem key={`glo-${i}`} n={n} type="global" />
               ))}
               {(!mState?.indian_news?.length && !mState?.breaking_news?.length) && (
                 <li className="italic text-zinc-400 bg-black/30 p-2 rounded">No breaking news...</li>

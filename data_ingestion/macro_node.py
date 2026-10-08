@@ -82,9 +82,9 @@ class MacroDataNode:
         # 1. Indian Markets RSS
         try:
             feed = feedparser.parse(self.rss_url)
-            # Send both title and summary to the AI engine
+            # Send title, summary, and link to the AI engine & frontend
             news_data["indian_markets"] = [
-                {"title": entry.title, "summary": entry.get("summary", "")}
+                {"title": entry.title, "summary": entry.get("summary", ""), "link": entry.get("link", "")}
                 for entry in feed.entries[:3]
             ]
         except Exception as e:
@@ -99,7 +99,7 @@ class MacroDataNode:
                     if response.status_code == 200:
                         articles = response.json().get("articles", [])
                         news_data["global_breaking"] = [
-                            {"title": a["title"], "summary": a.get("description", "")} 
+                            {"title": a["title"], "summary": a.get("description", ""), "link": a.get("url", "")} 
                             for a in articles[:3]
                         ]
             except Exception as e:
