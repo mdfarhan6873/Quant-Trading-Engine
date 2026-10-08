@@ -144,8 +144,8 @@ export default function Dashboard() {
         reconnectTimer = setTimeout(connectWebSocket, 3000);
       };
 
-      ws.onerror = (err) => {
-        console.error("WebSocket error:", err);
+      ws.onerror = () => {
+        console.warn("WebSocket disconnected. Attempting to reconnect...");
         ws.close();
       };
     };
