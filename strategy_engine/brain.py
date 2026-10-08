@@ -60,9 +60,28 @@ class StrategyBrain:
                 
                 # Fetch dynamic system prompt based on market state
                 system_prompt = await self.state_builder.get_system_prompt(is_open=is_open)
+                # Adaptive State Hashing (Architecture 10/10: Save API Rate Limits)
+                import hashlib
+                state_hash = hashlib.md5(market_state.encode()).hexdigest()
                 
-                # 2. Query LLM (Brain)
-                decision = await self.llm_client.get_decision(system_prompt, market_state)
+                # Only query the LLM if market state has meaningfully changed, OR if 60 seconds have passed.
+                # We skip the check if we have open positions (need constant monitoring)
+                has_open_positions = '"portfolio":{}' not in market_state.replace(" ", "")
+                
+                if not getattr(self, 'last_state_hash', None):
+                    self.last_state_hash = ""
+                    self.last_llm_call = 0
+                
+                time_since_last_call = time.time() - self.last_llm_call
+                
+                if state_hash == self.last_state_hash and time_since_last_call < 60.0 and not has_open_positions:
+                    logger.debug("State identical to previous cycle. Skipping LLM query to preserve rate limits (10/10 Architecture).")
+                    decision = None
+                else:
+                    # 2. Query LLM (Brain)
+                    self.last_state_hash = state_hash
+                    self.last_llm_call = time.time()
+                    decision = await self.llm_client.get_decision(system_prompt, market_state)
                 
                 if decision:
                     await redis_db.set_json("LATEST_AI_SIGNAL", decision)

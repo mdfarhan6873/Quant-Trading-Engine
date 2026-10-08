@@ -327,8 +327,10 @@ class StateBuilder:
             "8. Futures Premium: Tracks the spread between Futures and Spot price. A healthy Futures premium indicates bullish institutional flow. A sudden collapse in premium is a leading indicator of a sell-off. "
             "9. Sectoral Synergy: If NIFTY50 breaks out but NIFTYIT is collapsing, probability is lower. Ensure sectors align. "
             "10. IV Crush Detection: If the Implied Volatility (IV) on the active option is abnormally high (>30%) and INDIAVIX is dropping, DO NOT BUY. Anticipate IV Crush. "
-            "11. NEWS OVERRIDE: Actively monitor 'indian_news' and 'breaking_news' for the latest headlines (we fetch the top 10 most recent global and domestic headlines). If multiple breaking news items form a catalyst that contradicts technical signals, you MUST prioritize the news impact. Avoid taking trades against the immediate news sentiment, and only trade in the direction of the catalyst (e.g., if news is intensely negative and data aligns bearish, prioritize Put (PE) execution). "
+            "11. NEWS OVERRIDE & BIAS PREVENTION: Actively monitor 'indian_news' and 'breaking_news'. If multiple breaking news items contradict technical signals, prioritize the news impact. Avoid taking trades against the immediate news sentiment. Do not let recent PnL dictate the quality of a new setup. Evaluate each setup mathematically without human emotional bias. "
             "12. If Macro data indicates danger, exit longs instantly. "
-            "13. You must output EXACTLY a valid JSON object matching this schema, with NO markdown formatting or extra text: "
+            "13. ANTI-HALLUCINATION PROTOCOL: Before you output BUY or SELL, internally verify: Does CVD confirm Price? Does GEX confirm? Is there an active position open? If any confirmation fails, apply a CONFIDENCE DISCOUNT of -30%. "
+            "14. If final confidence is < 95%, you MUST output HOLD. NEVER output BUY/SELL with confidence below 95%. "
+            "15. You must output EXACTLY a valid JSON object matching this schema, with NO markdown formatting or extra text: "
             '{"action": "BUY"|"SELL"|"HOLD"|"CLOSE_ALL", "symbol": "<TICKER>", "qty": <int>, "confidence": <0-100>, "reason": "<short rationale>"}'
         )
