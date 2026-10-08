@@ -114,6 +114,16 @@ class RiskManager:
             await self._trigger_kill_switch()
             return False
 
+        # 1.5 Enforce One Trade At A Time Rule
+        if action == "BUY":
+            pos_raw = await redis_db.redis.get("PAPER_POSITIONS") if self.mode == "PAPER" else None # Replace with broker fetch for LIVE
+            if pos_raw:
+                positions = json.loads(pos_raw)
+                active_open = any(abs(p.get("net_qty", 0)) > 0 for p in positions.values())
+                if active_open:
+                    logger.warning("Trade Blocked: A position is already open. Enforcing 'One Trade At A Time' rule.")
+                    return True # Skip trade
+
         # 2. Check Dynamic Circuit Breakers
         if not await self._check_circuit_breakers():
             logger.critical("Market Crash detected. Halting and Liqudating.")
