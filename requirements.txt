@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+redis
+websockets
+py_vollib
+pandas
+yfinance
+feedparser
+python-dotenv
+httpx
+nsepython
+pyotp
