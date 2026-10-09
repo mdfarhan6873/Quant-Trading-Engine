@@ -138,10 +138,13 @@ class StateBuilder:
             nifty_premium = nifty_fut - nifty_spot if nifty_spot > 0 else 0
             bank_premium = bank_fut - bank_spot if bank_spot > 0 else 0
             
-            nifty_vwap_raw = await redis_db.redis.get("METRIC:VWAP:NIFTY50")
-            bank_vwap_raw = await redis_db.redis.get("METRIC:VWAP:BANKNIFTY")
-            nifty_vwap = json.loads(nifty_vwap_raw).get("vwap", nifty_fut) if nifty_vwap_raw else nifty_fut
-            bank_vwap = json.loads(bank_vwap_raw).get("vwap", bank_fut) if bank_vwap_raw else bank_fut
+            nifty_vwap = nifty_fut_tick.get("vwap", 0)
+            if not nifty_vwap or nifty_vwap == 0:
+                nifty_vwap = nifty_fut
+                
+            bank_vwap = bank_fut_tick.get("vwap", 0)
+            if not bank_vwap or bank_vwap == 0:
+                bank_vwap = bank_fut
             
             # Calculate Index Volume Deltas
             nifty_delta_vol = 0

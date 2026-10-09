@@ -285,7 +285,8 @@ class PrimaryDataNode:
                     "ltp": ltp,
                     "close": market_ff.get("ltpc", {}).get("cp", 0.0),
                     "volume": vol,
-                    "oi": oi, 
+                    "oi": oi,
+                    "vwap": market_ff.get("vWap", 0.0),
                     "bid_ask": {"depth": bids}
                 }
 
