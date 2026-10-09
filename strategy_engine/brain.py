@@ -86,8 +86,20 @@ class StrategyBrain:
                         decision = await self.llm_client.get_decision(system_prompt, market_state)
                         if decision:
                             await redis_db.redis.set(ran_key, "1", ex=86400) # expire in 24h
-                            # Save to a persistent analysis key so the UI or live market state can read it
-                            await redis_db.redis.set("LATEST_MARKET_ANALYSIS", json.dumps({"window": analysis_window, "analysis": decision}))
+                            # Save to a rolling list so the UI or live market state can read the last 3 events
+                            history_raw = await redis_db.redis.get("LATEST_MARKET_ANALYSIS")
+                            history = json.loads(history_raw) if history_raw else []
+                            if not isinstance(history, list):
+                                history = [history]
+                            
+                            history.append({
+                                "window": analysis_window, 
+                                "time": datetime.datetime.now(pytz.timezone('Asia/Kolkata')).isoformat(),
+                                "analysis": decision
+                            })
+                            # Keep only the last 3 analyses (e.g., Yesterday Post-Market, Today 8:30, Today 9:14)
+                            history = history[-3:]
+                            await redis_db.redis.set("LATEST_MARKET_ANALYSIS", json.dumps(history))
                         is_analysis_call = True
                     else:
                         logger.debug(f"Analysis for {analysis_window} already completed today.")

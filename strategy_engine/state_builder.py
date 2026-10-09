@@ -280,7 +280,7 @@ class StateBuilder:
 
             # Retrieve the latest scheduled analysis context
             analysis_raw = await redis_db.redis.get("LATEST_MARKET_ANALYSIS")
-            latest_analysis = json.loads(analysis_raw) if analysis_raw else {}
+            latest_analysis = json.loads(analysis_raw) if analysis_raw else []
 
             # Construct the ultra-dense JSON prompt
             state = {
