@@ -7,6 +7,7 @@ from core.config import settings
 from strategy_engine.state_builder import StateBuilder
 from strategy_engine.llm_client import LLMClient
 from strategy_engine.risk_manager import RiskManager
+from database.redis_db import redis_db
 
 logger = logging.getLogger(__name__)
 
@@ -126,10 +127,12 @@ class StrategyBrain:
                         decision = await self.llm_client.get_decision(system_prompt, market_state)
                 
                 if decision:
+                    # Broadcast to UI
+                    await redis_db.set_json("LATEST_AI_SIGNAL", decision)
+                    
                     if is_analysis_call:
                         logger.info(f"ANALYSIS REPORT GENERATED: {decision.get('reason')}")
                     else:
-                        await redis_db.set_json("LATEST_AI_SIGNAL", decision)
                         logger.info(f"LLM DECISION: {decision}")
                         
                         if is_open:
