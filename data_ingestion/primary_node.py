@@ -169,7 +169,12 @@ class TokenManager:
         if valid_options:
             # Sort by expiry to get the closest one
             valid_options.sort(key=lambda x: x.get("expiry", ""))
-            return valid_options[0].get("instrument_key", "")
+            front_key = valid_options[0].get("instrument_key", "")
+            if front_key:
+                internal_sym = f"OPT:{search_target}:{int(strike)}{opt_type}"
+                self.symbol_to_key[internal_sym] = front_key
+                self.key_to_symbol[front_key] = internal_sym
+                return front_key
         return ""
 
 

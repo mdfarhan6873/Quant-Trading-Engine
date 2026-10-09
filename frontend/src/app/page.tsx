@@ -380,8 +380,8 @@ export default function Dashboard() {
             {fmt(ind?.NIFTYIT?.ltp)}
           </p>
           <div className="mt-4 flex flex-col gap-2 text-sm font-semibold">
-            <div className="flex justify-between"><span className="text-zinc-300">Vol:</span><span className="text-blue-300">{ind?.NIFTYIT?.volume || 0}</span></div>
-            <div className="flex justify-between"><span className="text-zinc-300">Δ Vol:</span><span className="text-yellow-300">{ind?.NIFTYIT?.delta_volume || 0}</span></div>
+            <div className="flex justify-between"><span className="text-zinc-300">Vol:</span><span className="text-blue-300">---</span></div>
+            <div className="flex justify-between"><span className="text-zinc-300">Δ Vol:</span><span className="text-yellow-300">---</span></div>
           </div>
         </div>
 
