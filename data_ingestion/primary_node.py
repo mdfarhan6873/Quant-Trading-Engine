@@ -265,7 +265,21 @@ class PrimaryDataNode:
     def on_close(self, code, reason):
         logger.warning(f"Upstox WebSocket CLOSED: {code} - {reason}")
         self.is_connected = False
-        asyncio.run_coroutine_threadsafe(self.trigger_fallback(), self.loop)
+        # Instead of dying permanently, trigger a soft restart internally before failing over
+        logger.info("Attempting auto-reconnect in 5 seconds...")
+        async def reconnect_task():
+            await asyncio.sleep(5)
+            if not self.is_connected:
+                # Re-fetch keys and re-initialize streamer thread
+                keys = await self.get_dynamic_subscription_list()
+                if keys:
+                    import threading
+                    t = threading.Thread(target=self.start_streamer_thread, args=(keys,))
+                    t.daemon = True
+                    t.start()
+                else:
+                    await self.trigger_fallback()
+        asyncio.run_coroutine_threadsafe(reconnect_task(), self.loop)
 
     def on_error(self, error):
         logger.error(f"Upstox WebSocket ERROR: {error}")

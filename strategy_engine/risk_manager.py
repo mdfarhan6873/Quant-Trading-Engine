@@ -104,19 +104,19 @@ class RiskManager:
             base_lot = 15 if "BANKNIFTY" in symbol else 25
             lots = 1
             if confidence >= 95:
-                # Dynamic scaling: Max 3 lots, but limited by available capital
-                max_capital = getattr(settings, "MAX_CAPITAL", 50000)  # Default 50k INR
-                # Fetch current option price to calculate margin
+                max_capital = getattr(settings, "MAX_CAPITAL", 50000)
                 tick_raw = await redis_db.redis.get(f"LTP:{symbol}")
                 price = json.loads(tick_raw).get("ltp", 0.0) if tick_raw else 0.0
                 
+                target_lots = 5 if confidence >= 97 else 3
+                
                 if price > 0:
                     max_affordable_lots = int(max_capital / (price * base_lot))
-                    lots = min(3, max_affordable_lots) # Cap at 3 lots or whatever funds allow
+                    lots = min(target_lots, max_affordable_lots)
                     if lots < 1: 
-                        lots = 1 # Force at least 1 lot if we want to trade, though we might hit margin error at broker
+                        lots = 1
                 else:
-                    lots = 3 # If price unknown, assume 3 lots
+                    lots = target_lots
             qty = lots * base_lot
         else:
             qty = decision.get("qty", 0)
