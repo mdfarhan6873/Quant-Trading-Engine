@@ -101,7 +101,13 @@ class RiskManager:
         
         # Dynamic Quantity Sizing
         if action == "BUY":
-            base_lot = 30 if "BANKNIFTY" in symbol else 65
+            from core.redis_client import redis_db
+            if "BANKNIFTY" in symbol:
+                lot_raw = await redis_db.redis.get("SYSTEM:LOT:BANKNIFTY")
+                base_lot = int(lot_raw) if lot_raw else 30
+            else:
+                lot_raw = await redis_db.redis.get("SYSTEM:LOT:NIFTY")
+                base_lot = int(lot_raw) if lot_raw else 65
             lots = 1
             if confidence >= 95:
                 from core.database import get_setting

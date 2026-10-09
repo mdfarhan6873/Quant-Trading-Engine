@@ -74,8 +74,9 @@ class TokenManager:
             logger.info(f"Successfully mapped {len(self.symbol_to_key)} exact instruments. Option chain will be built dynamically.")
             self.csv_data = data # Store for dynamic searches
             
-            # Map futures
+            # Map futures and lot sizes
             self.map_front_month_futures()
+            self.map_lot_sizes()
         except Exception as e:
             logger.error(f"Failed to fetch Scrip Master: {e}")
 
@@ -114,6 +115,36 @@ class TokenManager:
                 self.symbol_to_key[internal_sym] = front_key
                 self.key_to_symbol[front_key] = internal_sym
                 logger.info(f"Mapped {internal_sym} -> {front_key}")
+
+    def map_lot_sizes(self):
+        """Extracts dynamic lot sizes directly from the exchange to handle SEBI updates seamlessly."""
+        if not hasattr(self, 'csv_data'):
+            return
+            
+        nifty_lot = None
+        banknifty_lot = None
+        
+        reader = csv.DictReader(io.StringIO(self.csv_data))
+        for row in reader:
+            if row.get("instrument_type") == "OPTIDX":
+                if row.get("name") == "NIFTY" and not nifty_lot:
+                    nifty_lot = row.get("lot_size")
+                if row.get("name") == "BANKNIFTY" and not banknifty_lot:
+                    banknifty_lot = row.get("lot_size")
+            if nifty_lot and banknifty_lot:
+                break
+                
+        if not nifty_lot or not banknifty_lot:
+            return
+
+        import redis
+        try:
+            r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+            r.set("SYSTEM:LOT:NIFTY", nifty_lot)
+            r.set("SYSTEM:LOT:BANKNIFTY", banknifty_lot)
+            logger.info(f"Dynamically mapped Lot Sizes -> NIFTY: {nifty_lot}, BANKNIFTY: {banknifty_lot}")
+        except Exception as e:
+            logger.error(f"Failed to save lot sizes to redis: {e}")
 
     def find_option_instrument_key(self, index_name: str, strike: float, opt_type: str) -> str:
         """Helper to find the nearest expiring option instrument key based on strike."""
