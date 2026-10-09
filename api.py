@@ -240,7 +240,7 @@ async def get_system_health():
 @app.get("/api/system/logs")
 async def get_system_logs():
     """Fetch recent system logs."""
-    log_path = os.path.join(os.path.dirname(__file__), "gini_trading.log")
+    log_path = os.path.join(os.path.dirname(__file__), "logs", "trading_engine.log")
     if not os.path.exists(log_path):
         return {"logs": ["Log file not found."]}
         
