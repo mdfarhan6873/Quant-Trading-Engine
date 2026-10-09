@@ -101,7 +101,7 @@ class RiskManager:
         
         # Dynamic Quantity Sizing
         if action == "BUY":
-            base_lot = 15 if "BANKNIFTY" in symbol else 25
+            base_lot = 30 if "BANKNIFTY" in symbol else 65
             lots = 1
             if confidence >= 95:
                 from core.database import get_setting
