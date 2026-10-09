@@ -121,11 +121,15 @@ class StateBuilder:
             nifty_it_tick = json.loads(nifty_it_raw) if nifty_it_raw else {}
             
             nifty_spot = nifty_tick.get("ltp", 0)
-            nifty_vol = nifty_tick.get("volume", 0)
+            
+            nifty_fut_tick = json.loads(nifty_fut_raw) if nifty_fut_raw else {}
+            bank_fut_tick = json.loads(bank_fut_raw) if bank_fut_raw else {}
+            
+            nifty_vol = nifty_fut_tick.get("volume", 0)
             bank_spot = bank_tick.get("ltp", 0)
-            bank_vol = bank_tick.get("volume", 0)
+            bank_vol = bank_fut_tick.get("volume", 0)
             it_spot = nifty_it_tick.get("ltp", 0)
-            it_vol = nifty_it_tick.get("volume", 0)
+            it_vol = nifty_it_tick.get("volume", 0) # IT index might not have futures tracked here, keep as is
             vix_spot = json.loads(vix_spot_raw).get("ltp", 0) if vix_spot_raw else 0
             
             nifty_fut = json.loads(nifty_fut_raw).get("ltp", nifty_spot) if nifty_fut_raw else nifty_spot
@@ -136,8 +140,8 @@ class StateBuilder:
             
             nifty_vwap_raw = await redis_db.redis.get("METRIC:VWAP:NIFTY50")
             bank_vwap_raw = await redis_db.redis.get("METRIC:VWAP:BANKNIFTY")
-            nifty_vwap = json.loads(nifty_vwap_raw).get("vwap", nifty_spot) if nifty_vwap_raw else nifty_spot
-            bank_vwap = json.loads(bank_vwap_raw).get("vwap", bank_spot) if bank_vwap_raw else bank_spot
+            nifty_vwap = json.loads(nifty_vwap_raw).get("vwap", nifty_fut) if nifty_vwap_raw else nifty_fut
+            bank_vwap = json.loads(bank_vwap_raw).get("vwap", bank_fut) if bank_vwap_raw else bank_fut
             
             # Calculate Index Volume Deltas
             nifty_delta_vol = 0
