@@ -7,7 +7,7 @@ from core.config import settings
 from strategy_engine.state_builder import StateBuilder
 from strategy_engine.llm_client import LLMClient
 from strategy_engine.risk_manager import RiskManager
-from database.redis_db import redis_db
+from core.redis_client import redis_db
 
 logger = logging.getLogger(__name__)
 
