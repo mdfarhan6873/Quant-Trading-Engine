@@ -120,8 +120,19 @@ const NewsItem = ({ n, type }: { n: { title?: string, summary?: string, link?: s
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [connected, setConnected] = useState(false);
+  const [paperFunds, setPaperFunds] = useState<number>(50000);
+  const [isEditingFunds, setIsEditingFunds] = useState(false);
+  const [fundInput, setFundInput] = useState("");
 
   useEffect(() => {
+    // Fetch paper funds
+    fetch(`${API_CONFIG.BASE_URL}/api/paper_funds`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.funds) setPaperFunds(data.funds);
+      })
+      .catch(err => console.error("Failed to fetch paper funds", err));
+
     let ws: WebSocket;
     let reconnectTimer: NodeJS.Timeout;
 
@@ -160,6 +171,28 @@ export default function Dashboard() {
       if (ws) ws.close();
     };
   }, []);
+
+  const savePaperFunds = async () => {
+    const val = parseFloat(fundInput);
+    if (isNaN(val) || val <= 0) {
+      alert("Please enter a valid amount");
+      return;
+    }
+    try {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/api/paper_funds`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ funds: val })
+      });
+      const result = await res.json();
+      if (result.status === "success") {
+        setPaperFunds(val);
+        setIsEditingFunds(false);
+      }
+    } catch (err) {
+      alert("Failed to update paper funds");
+    }
+  };
 
   const triggerKillSwitch = async () => {
     if (confirm("🚨 KILL SWITCH! 🚨\nAre you sure you want to trigger the KILL SWITCH? This will square off all positions at market price and halt the engine.")) {
@@ -252,6 +285,36 @@ export default function Dashboard() {
               ANALYTICS & HEALTH
             </button>
           </Link>
+          
+          {/* Paper Funds Display / Edit (Only visible in PAPER mode) */}
+          {data?.trading_mode === "PAPER" && (
+            <div className="flex items-center gap-2 bg-zinc-950 p-2 rounded-lg border border-zinc-700 text-sm">
+              <span className="text-zinc-400 font-bold tracking-widest">FUNDS:</span>
+              {isEditingFunds ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    className="bg-zinc-900 text-blue-400 font-black px-2 py-1 rounded border border-blue-900 w-24 outline-none text-right"
+                    value={fundInput}
+                    onChange={(e) => setFundInput(e.target.value)}
+                    autoFocus
+                  />
+                  <button onClick={savePaperFunds} className="text-emerald-500 font-bold hover:text-emerald-400">SAVE</button>
+                  <button onClick={() => setIsEditingFunds(false)} className="text-zinc-500 font-bold hover:text-zinc-400">X</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-blue-400 font-black">₹{paperFunds.toLocaleString()}</span>
+                  <button 
+                    onClick={() => { setFundInput(paperFunds.toString()); setIsEditingFunds(true); }}
+                    className="text-zinc-500 hover:text-blue-400 text-xs underline"
+                  >
+                    EDIT
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Trading Mode Toggle */}
           <div className="flex items-center gap-3 bg-zinc-950 p-2 rounded-lg border border-zinc-700">

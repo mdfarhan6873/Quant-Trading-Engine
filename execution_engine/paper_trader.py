@@ -26,14 +26,15 @@ class PaperTrader:
             return json.loads(tick_str)
         return None
 
-    async def place_order(self, symbol: str, qty: int, side: str, order_type: str = "MKT", price: float = 0.0) -> Optional[str]:
+    async def place_order(self, symbol: str, qty: int, side: str, order_type: str = "MKT", price: float = 0.0) -> tuple[Optional[str], float]:
         """
         Simulates an order execution based on REAL live order book depth.
+        Returns (order_id, realized_pnl_for_this_trade).
         """
         tick = await self.get_live_quote(symbol)
         if not tick:
             logger.error(f"PaperTrade: Cannot execute {symbol}, no live tick available.")
-            return None
+            return None, 0.0
             
         depth = tick.get("bid_ask", {})
         
@@ -68,12 +69,12 @@ class PaperTrader:
         logger.info(f"PAPER FILL: {side} {qty} {symbol} @ ₹{fill_price} (Order: {order_id})")
         
         # Update internal positions
-        await self._update_position(symbol, qty, side, fill_price)
+        trade_pnl = await self._update_position(symbol, qty, side, fill_price)
         
-        return order_id
+        return order_id, trade_pnl
 
-    async def _update_position(self, symbol: str, qty: int, side: str, fill_price: float):
-        """Maintains the simulated position book and calculates realized PnL."""
+    async def _update_position(self, symbol: str, qty: int, side: str, fill_price: float) -> float:
+        """Maintains the simulated position book and calculates realized PnL. Returns the PnL of this specific trade."""
         if symbol not in self.open_positions:
             self.open_positions[symbol] = {"net_qty": 0, "avg_price": 0.0, "realized_pnl": 0.0}
             
@@ -85,6 +86,8 @@ class PaperTrader:
         
         trade_qty = qty if side.upper() == "BUY" else -qty
         new_qty = prev_qty + trade_qty
+        
+        trade_pnl = 0.0
         
         if prev_qty == 0:
             # New position
@@ -103,17 +106,8 @@ class PaperTrader:
             else: # We were short, now buying
                 pnl = (prev_avg - fill_price) * closed_qty
                 
+            trade_pnl = pnl
             pos["realized_pnl"] += pnl
-            
-            # Log the trade
-            self.trade_log.append({
-                "timestamp": time.time(),
-                "symbol": symbol,
-                "side": side,
-                "qty": qty,
-                "fill_price": fill_price,
-                "realized_pnl": round(pnl, 2)
-            })
             
             # If reversed
             if abs(trade_qty) > abs(prev_qty):
@@ -121,8 +115,19 @@ class PaperTrader:
 
         pos["net_qty"] = new_qty
         
+        # Log the trade internally
+        self.trade_log.append({
+            "timestamp": time.time(),
+            "symbol": symbol,
+            "side": side,
+            "qty": qty,
+            "fill_price": fill_price,
+            "realized_pnl": round(trade_pnl, 2)
+        })
+        
         # Save state to Redis so UI can render it
         await redis_db.set_json("PAPER_POSITIONS", self.open_positions)
+        return trade_pnl
         
     async def close_all_positions(self) -> bool:
         """Paper Trade Kill Switch"""

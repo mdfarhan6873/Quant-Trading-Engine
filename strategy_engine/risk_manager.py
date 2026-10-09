@@ -104,7 +104,12 @@ class RiskManager:
             base_lot = 15 if "BANKNIFTY" in symbol else 25
             lots = 1
             if confidence >= 95:
-                max_capital = getattr(settings, "MAX_CAPITAL", 50000)
+                from core.database import get_setting
+                if self.mode == "PAPER":
+                    max_capital = float(get_setting("PAPER_FUNDS", getattr(settings, "MAX_CAPITAL", 50000)))
+                else:
+                    max_capital = getattr(settings, "MAX_CAPITAL", 50000)
+                    
                 tick_raw = await redis_db.redis.get(f"LTP:{symbol}")
                 price = json.loads(tick_raw).get("ltp", 0.0) if tick_raw else 0.0
                 
@@ -166,8 +171,9 @@ class RiskManager:
         logger.info(f"RISK APPROVED: Executing {action} {qty} {symbol}")
         
         order_id = None
+        trade_pnl = 0.0
         if self.mode == "PAPER":
-            order_id = await self.paper_trader.place_order(symbol, qty, action, "MKT")
+            order_id, trade_pnl = await self.paper_trader.place_order(symbol, qty, action, "MKT")
         elif self.mode == "LIVE":
             order_id = await self.groww_router.place_order(symbol, qty, action, "MKT")
             if not order_id:
@@ -176,23 +182,26 @@ class RiskManager:
                 
         # 4. Database Logging
         if order_id:
-            # For SELL, calculate PnL to log (Paper only for now, fetch from broker API if LIVE)
-            pnl_realized = 0.0
-            if action == "SELL" and self.mode == "PAPER":
-                pos_raw = await redis_db.redis.get("PAPER_POSITIONS")
-                if pos_raw:
-                    positions = json.loads(pos_raw)
-                    if symbol in positions:
-                        pnl_realized = positions[symbol].get("realized_pnl", 0.0)
-                        
-            # Get latest price for logging
+            updated_fund = 0.0
+            
+            if self.mode == "PAPER":
+                from core.database import get_setting, set_setting
+                current_fund = float(get_setting("PAPER_FUNDS", getattr(settings, "MAX_CAPITAL", 50000)))
+                
+                # Charge ₹60 brokerage per trade leg for paper realism (as per user request)
+                updated_fund = current_fund - 60.0 + trade_pnl
+                
+                # Save the updated fund back to database
+                set_setting("PAPER_FUNDS", str(updated_fund))
+                
+            # For now, let's just log the price.
             price = 0.0
             tick_raw = await redis_db.redis.get(f"LTP:{symbol}")
             if tick_raw:
                 price = json.loads(tick_raw).get("ltp", 0.0)
                 
             # Log to SQLite
-            log_trade(symbol, action, qty, price, confidence, reason, pnl_realized, self.mode)
+            log_trade(symbol, action, qty, price, confidence, reason, trade_pnl, self.mode, updated_fund)
             
         return order_id is not None
 
@@ -271,12 +280,30 @@ class RiskManager:
             await asyncio.sleep(1) # Fast loop runs every second
 
     async def _trigger_kill_switch(self):
-        """Fires the emergency liquidation across active routers."""
-        if self.mode == "PAPER":
-            await self.paper_trader.close_all_positions()
-        elif self.mode == "LIVE":
+        """Fires the emergency liquidation across active routers and updates state."""
+        self.is_halted = True
+        logger.critical("KILL SWITCH INITIATED: Liquidating all open positions at market!")
+        
+        pos_raw = await redis_db.redis.get("PAPER_POSITIONS") if self.mode == "PAPER" else None
+        if pos_raw:
+            positions = json.loads(pos_raw)
+            # Temporarily unhalt to process the close orders, then re-halt
+            self.is_halted = False 
+            for symbol, pos in list(positions.items()):
+                qty = pos.get("net_qty", 0)
+                if qty != 0:
+                    side = "SELL" if qty > 0 else "BUY"
+                    await self.process_decision({
+                        "action": side,
+                        "symbol": symbol,
+                        "qty": abs(qty),
+                        "confidence": 100,
+                        "reason": "KILL SWITCH LIQUIDATION"
+                    })
+            self.is_halted = True
+                    
+        if self.mode == "LIVE":
             await self.groww_router.close_all_positions()
-            # As an extreme fallback, we could also ping Dhan just in case
             await self.dhan_router.close_all_positions()
 
     async def shutdown(self):

@@ -143,6 +143,24 @@ async def set_trading_mode(payload: ModeUpdate):
 
 import sqlite3
 import os
+from core.database import get_setting, set_setting
+
+class PaperFundsUpdate(BaseModel):
+    funds: float
+
+@app.get("/api/paper_funds")
+async def get_paper_funds():
+    """Fetch the current paper trading fund balance from SQLite."""
+    funds = get_setting("PAPER_FUNDS", "50000.0")
+    return {"funds": float(funds)}
+
+@app.post("/api/paper_funds")
+async def update_paper_funds(payload: PaperFundsUpdate):
+    """Update the paper trading fund balance."""
+    set_setting("PAPER_FUNDS", str(payload.funds))
+    logger.info(f"Paper trading funds updated to {payload.funds}")
+    return {"status": "success", "funds": payload.funds}
+
 
 @app.get("/api/trades")
 async def get_trades(mode: str = "ALL", start_date: str = None, end_date: str = None):
