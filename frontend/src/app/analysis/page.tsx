@@ -76,7 +76,7 @@ export default function AnalysisPage() {
           <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
             System Analysis & Diagnostics
           </h1>
-          <p className="text-gray-400 text-sm mt-1">Gini Algo Post-Market Review</p>
+          <p className="text-gray-400 text-sm mt-1">Jini Algo Post-Market Review</p>
         </div>
         <Link href="/">
           <button className="px-6 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors border border-gray-700">

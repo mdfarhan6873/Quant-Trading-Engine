@@ -107,14 +107,23 @@ class StrategyBrain:
                 elif not is_open:
                     logger.debug("Market is closed. Updating state but skipping LLM query to save API quotas.")
                     decision = None
-                elif state_hash == self.last_state_hash and time_since_last_call < 60.0 and not has_open_positions:
-                    logger.debug("State identical to previous cycle. Skipping LLM query to preserve rate limits (10/10 Architecture).")
-                    decision = None
                 else:
-                    # 2. Query LLM (Brain) Live
-                    self.last_state_hash = state_hash
-                    self.last_llm_call = time.time()
-                    decision = await self.llm_client.get_decision(system_prompt, market_state)
+                    # Adaptive Rate Limiting to prevent 429 Errors
+                    if has_open_positions:
+                        should_call_llm = True
+                    elif time_since_last_call >= 60.0:
+                        should_call_llm = True
+                    else:
+                        should_call_llm = False
+                        
+                    if not should_call_llm:
+                        logger.debug(f"Throttling LLM query to preserve rate limits (Next call in {60.0 - time_since_last_call:.1f}s)")
+                        decision = None
+                    else:
+                        # 2. Query LLM (Brain) Live
+                        self.last_state_hash = state_hash
+                        self.last_llm_call = time.time()
+                        decision = await self.llm_client.get_decision(system_prompt, market_state)
                 
                 if decision:
                     if is_analysis_call:
