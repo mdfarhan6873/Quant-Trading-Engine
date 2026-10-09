@@ -78,12 +78,17 @@ class LLMClient:
         return {"action": "HOLD", "symbol": "", "qty": 0}
 
     async def _call_gemini(self, system_prompt: str, market_state_json: str) -> Optional[Dict[str, Any]]:
-        """Calls Google Gemini API (gemini-1.5-flash for max speed)."""
+        """Calls Google Gemini API with automatic dynamic model fallback."""
         if not self.gemini_key:
             logger.error("GEMINI_API_KEY is missing.")
             return None
             
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={self.gemini_key}"
+        models_to_try = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-1.5-pro",
+            "gemini-2.5-flash"
+        ]
         
         payload = {
             "system_instruction": {
@@ -98,18 +103,26 @@ class LLMClient:
             }
         }
         
-        try:
-            response = await self.client.post(url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                text_response = data["candidates"][0]["content"]["parts"][0]["text"]
-                return self._parse_json(text_response)
-            else:
-                logger.error(f"Gemini API Error: {response.status_code} - {response.text}")
-                return None
-        except Exception as e:
-            logger.error(f"Gemini Request Failed: {e}")
-            return None
+        for model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.gemini_key}"
+            try:
+                response = await self.client.post(url, json=payload)
+                if response.status_code == 200:
+                    data = response.json()
+                    text_response = data["candidates"][0]["content"]["parts"][0]["text"]
+                    return self._parse_json(text_response)
+                elif response.status_code in [503, 429, 500, 502]:
+                    logger.warning(f"Gemini API {model} unavailable ({response.status_code}). Falling back...")
+                    continue # Try next model
+                else:
+                    logger.error(f"Gemini API Error ({model}): {response.status_code} - {response.text}")
+                    return None
+            except Exception as e:
+                logger.error(f"Gemini Request Failed ({model}): {e}")
+                continue # Try next model on network error
+                
+        logger.error("All Gemini fallback models failed.")
+        return None
 
     async def _call_anthropic(self, system_prompt: str, market_state_json: str) -> Optional[Dict[str, Any]]:
         """Calls Anthropic Claude API (claude-3-haiku-20240307 for max speed)."""
