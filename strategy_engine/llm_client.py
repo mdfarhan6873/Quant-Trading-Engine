@@ -17,7 +17,7 @@ class LLMClient:
         self.anthropic_key = settings.ANTHROPIC_API_KEY
         
         # We use httpx for async, low-latency REST calls without bulky SDK overhead
-        self.client = httpx.AsyncClient(timeout=3.0) # Strict 3s timeout for the Brain
+        self.client = httpx.AsyncClient(timeout=30.0) # Increased timeout to 30s to give Gemini enough time to think
 
     async def get_decision(self, system_prompt: str, market_state_json: str) -> Optional[Dict[str, Any]]:
         """
