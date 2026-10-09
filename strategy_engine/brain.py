@@ -51,18 +51,16 @@ class StrategyBrain:
                 # Check if market is open
                 state_dict = json.loads(market_state)
                 is_open = state_dict.get("is_market_open", True)
-                # The polling interval should remain fast (e.g., 5 seconds) so the UI gets fresh state updates 
-                # (like macroeconomic data polling from background nodes).
+                analysis_window = state_dict.get("analysis_window", None)
+                
                 self.polling_interval = 5.0
                 
                 # Fetch dynamic system prompt based on market state
-                system_prompt = await self.state_builder.get_system_prompt(is_open=is_open)
+                system_prompt = await self.state_builder.get_system_prompt(is_open=is_open, analysis_window=analysis_window)
+                
                 # Adaptive State Hashing (Architecture 10/10: Save API Rate Limits)
                 import hashlib
                 state_hash = hashlib.md5(market_state.encode()).hexdigest()
-                
-                # Only query the LLM if market state has meaningfully changed, OR if 60 seconds have passed.
-                # We skip the check if we have open positions (need constant monitoring)
                 has_open_positions = '"portfolio":{}' not in market_state.replace(" ", "")
                 
                 if not getattr(self, 'last_state_hash', None):
@@ -71,29 +69,52 @@ class StrategyBrain:
                 
                 time_since_last_call = time.time() - self.last_llm_call
                 
-                if not is_open:
+                decision = None
+                is_analysis_call = False
+                
+                if analysis_window:
+                    # Check if we already ran analysis for this window today
+                    today_str = datetime.datetime.now(pytz.timezone('Asia/Kolkata')).date().isoformat()
+                    ran_key = f"ANALYSIS_RAN:{analysis_window}:{today_str}"
+                    already_ran = await redis_db.redis.get(ran_key)
+                    
+                    if not already_ran:
+                        logger.info(f"Triggering Scheduled Market Analysis: {analysis_window}")
+                        self.last_llm_call = time.time()
+                        decision = await self.llm_client.get_decision(system_prompt, market_state)
+                        if decision:
+                            await redis_db.redis.set(ran_key, "1", ex=86400) # expire in 24h
+                            # Save to a persistent analysis key so the UI or live market state can read it
+                            await redis_db.redis.set("LATEST_MARKET_ANALYSIS", json.dumps({"window": analysis_window, "analysis": decision}))
+                        is_analysis_call = True
+                    else:
+                        logger.debug(f"Analysis for {analysis_window} already completed today.")
+                        decision = None
+                elif not is_open:
                     logger.debug("Market is closed. Updating state but skipping LLM query to save API quotas.")
                     decision = None
                 elif state_hash == self.last_state_hash and time_since_last_call < 60.0 and not has_open_positions:
                     logger.debug("State identical to previous cycle. Skipping LLM query to preserve rate limits (10/10 Architecture).")
                     decision = None
                 else:
-                    # 2. Query LLM (Brain)
+                    # 2. Query LLM (Brain) Live
                     self.last_state_hash = state_hash
                     self.last_llm_call = time.time()
                     decision = await self.llm_client.get_decision(system_prompt, market_state)
                 
                 if decision:
-                    await redis_db.set_json("LATEST_AI_SIGNAL", decision)
-                    logger.info(f"LLM DECISION: {decision}")
-                    
-                    if is_open:
-                        # 3. Risk Gauntlet & Execution (Shield & Hands)
-                        await self.risk_manager.process_decision(decision)
+                    if is_analysis_call:
+                        logger.info(f"ANALYSIS REPORT GENERATED: {decision.get('reason')}")
                     else:
-                        logger.info("Market Closed. Displaying Post-Market Analysis on Dashboard.")
+                        await redis_db.set_json("LATEST_AI_SIGNAL", decision)
+                        logger.info(f"LLM DECISION: {decision}")
+                        
+                        if is_open:
+                            # 3. Risk Gauntlet & Execution (Shield & Hands)
+                            await self.risk_manager.process_decision(decision)
                 else:
-                    logger.warning("LLM returned no valid decision this cycle.")
+                    if is_open:
+                        logger.warning("LLM returned no valid decision this cycle.")
                     
                 # 4. Latency tracking
                 latency = time.time() - start_time

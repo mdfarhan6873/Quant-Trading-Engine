@@ -47,6 +47,26 @@ def is_market_open() -> bool:
         
     return True
 
+def get_analysis_window() -> str:
+    """Returns the current analysis window if we are within the 5-minute trigger period."""
+    tz = pytz.timezone('Asia/Kolkata')
+    now = datetime.datetime.now(tz)
+    
+    if now.weekday() >= 5: # No analysis on weekends
+        return None
+        
+    # 8:30 AM to 8:35 AM - Early Pre-Market (Global sentiment)
+    if now.hour == 8 and 30 <= now.minute <= 35:
+        return "PRE_MARKET_830"
+    # 9:00 AM to 9:05 AM - Pre-Market Open (Pre-open ticks)
+    elif now.hour == 9 and 0 <= now.minute <= 5:
+        return "PRE_MARKET_900"
+    # 19:00 PM to 19:05 PM - Post-Market Daily Review
+    elif now.hour == 19 and 0 <= now.minute <= 5:
+        return "POST_MARKET_1900"
+        
+    return None
+
 class StateBuilder:
     """
     Compresses high-frequency Redis state into a dense, token-efficient JSON payload.
@@ -258,10 +278,16 @@ class StateBuilder:
                                 "theta": theta
                             }
 
+            # Retrieve the latest scheduled analysis context
+            analysis_raw = await redis_db.redis.get("LATEST_MARKET_ANALYSIS")
+            latest_analysis = json.loads(analysis_raw) if analysis_raw else {}
+
             # Construct the ultra-dense JSON prompt
             state = {
                 "market_time": market_time,
                 "is_market_open": market_open,
+                "analysis_window": get_analysis_window(),
+                "latest_analysis_context": latest_analysis,
                 "indices": {
                     "NIFTY50": {"ltp": nifty_spot, "volume": nifty_vol, "delta_volume": nifty_delta_vol, "vwap": nifty_vwap, "futures_premium": nifty_premium},
                     "BANKNIFTY": {"ltp": bank_spot, "volume": bank_vol, "delta_volume": bank_delta_vol, "vwap": bank_vwap, "futures_premium": bank_premium},
@@ -300,11 +326,20 @@ class StateBuilder:
             logger.error(f"Failed to build market state: {e}")
             return "{}"
 
-    async def get_system_prompt(self, is_open: bool = True) -> str:
+    async def get_system_prompt(self, is_open: bool = True, analysis_window: str = None) -> str:
         """
         Returns the system prompt instructing the LLM on how to behave based on market hours.
         """
-        if not is_open:
+        if analysis_window:
+            return (
+                f"You are an elite quantitative macro-analyst AI specializing in Indian Markets (Nifty/BankNifty). "
+                f"The current market phase is {analysis_window}. Your task is to analyze the data provided in the state JSON. "
+                "You must look at FII/DII data, global macro indices, breaking news, heavyweights performance, and option chain positioning (GEX/MaxPain) to form a bias. "
+                "Your objective is to provide a concise, high-impact narrative and a market bias (BULLISH, BEARISH, or NEUTRAL). "
+                "You must output EXACTLY a valid JSON object matching this schema, with NO markdown formatting or extra text: "
+                '{"action": "ANALYSIS", "symbol": "MACRO", "qty": 0, "confidence": 100, "reason": "<detailed analysis here>"}'
+            )
+        elif not is_open:
             return (
                 "You are an elite quantitative macro-analyst AI specializing in Indian Markets (Nifty/BankNifty). "
                 "The market is currently CLOSED. Your task is to analyze the post-market/pre-market data provided in the state JSON. "
