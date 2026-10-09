@@ -58,9 +58,9 @@ def get_analysis_window() -> str:
     # 8:30 AM to 8:35 AM - Early Pre-Market (Global sentiment)
     if now.hour == 8 and 30 <= now.minute <= 35:
         return "PRE_MARKET_830"
-    # 9:00 AM to 9:05 AM - Pre-Market Open (Pre-open ticks)
-    elif now.hour == 9 and 0 <= now.minute <= 5:
-        return "PRE_MARKET_900"
+    # 9:14 AM to 9:15 AM - Pre-Market Settled Prices (Exact Gap Up/Down known)
+    elif now.hour == 9 and now.minute == 14:
+        return "PRE_MARKET_914"
     # 19:00 PM to 19:05 PM - Post-Market Daily Review
     elif now.hour == 19 and 0 <= now.minute <= 5:
         return "POST_MARKET_1900"
