@@ -1,294 +1,471 @@
 import asyncio
+import csv
+import datetime
+import gzip
+import io
 import json
 import logging
 import math
-import urllib.request
-import csv
-import io
-import gzip
 import threading
-from typing import Dict, Any, List
+import time
+import urllib.request
+from typing import Any, Dict, List
 
+import pytz
 import upstox_client
 from upstox_client.feeder.market_data_streamer_v3 import MarketDataStreamerV3
 
-from core.redis_client import redis_db
 from core.config import settings
+from core.redis_client import redis_db
 
 logger = logging.getLogger(__name__)
+
 
 class TokenManager:
     """
     Downloads daily broker Scrip Master (Token Master) from Upstox.
-    Maps our internal symbols to Upstox Instrument Keys (e.g. NSE_FO|...)
+    Maps our internal symbols to Upstox Instrument Keys (e.g. NSE_INDEX|India VIX, NSE_FO|...).
     """
+
     def __init__(self):
-        self.symbol_to_key = {}
-        self.key_to_symbol = {}
-        
+        self.symbol_to_key: Dict[str, str] = {
+            "INDEX:NIFTY50": "NSE_INDEX|Nifty 50",
+            "INDEX:NIFTYBANK": "NSE_INDEX|Nifty Bank",
+            "INDEX:NIFTYIT": "NSE_INDEX|Nifty IT",
+            "INDEX:INDIAVIX": "NSE_INDEX|India VIX",
+        }
+        self.key_to_symbol: Dict[str, str] = {v: k for k, v in self.symbol_to_key.items()}
+        self.csv_data: str = ""
+
     def fetch_master(self):
         logger.info("Downloading Daily Broker Scrip Master (Tokens) from Upstox...")
         try:
             url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
-            response = urllib.request.urlopen(url)
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            response = urllib.request.urlopen(req, timeout=20)
             compressed_file = io.BytesIO(response.read())
             decompressed_file = gzip.GzipFile(fileobj=compressed_file)
-            data = decompressed_file.read().decode('utf-8')
-            
+            data = decompressed_file.read().decode("utf-8")
+
             reader = csv.DictReader(io.StringIO(data))
-            
+
             for row in reader:
                 instrument_key = row.get("instrument_key")
                 tradingsymbol = row.get("tradingsymbol", "")
                 exchange = row.get("exchange", "")
                 instrument_type = row.get("instrument_type", "")
                 name = row.get("name", "")
-                
+
                 internal_sym = ""
-                
-                if instrument_type == "INDEX":
-                    if name == "Nifty 50":
+
+                if instrument_type == "INDEX" and exchange == "NSE_INDEX":
+                    norm_name = name.strip().upper()
+                    if norm_name in ("NIFTY 50", "NIFTY"):
                         internal_sym = "INDEX:NIFTY50"
-                    elif name == "Nifty Bank":
+                    elif norm_name in ("NIFTY BANK", "BANKNIFTY"):
                         internal_sym = "INDEX:NIFTYBANK"
-                    elif name == "Nifty IT":
+                    elif norm_name == "NIFTY IT":
                         internal_sym = "INDEX:NIFTYIT"
-                    elif name == "India VIX":
+                    elif norm_name == "INDIA VIX":
                         internal_sym = "INDEX:INDIAVIX"
-                elif exchange == "NSE_EQ" and instrument_type == "EQ":
+                elif exchange == "NSE_EQ" and instrument_type == "EQUITY":
                     internal_sym = f"EQ:{tradingsymbol}"
-                elif exchange == "NSE_FO":
-                    if instrument_type == "OPTIDX":
-                        # Upstox tradingsymbol for options looks like: NIFTY24APR22500CE
-                        # We will map standard options to our format later, but for exact mapping, 
-                        # we can rely on strike, expiry, option_type if needed.
-                        # For simplicity, we just use tradingsymbol here and the system will request the exact tradingsymbol.
-                        # But wait, our get_dynamic_subscription_list uses standard OPT:NIFTY:22500CE.
-                        # We need a robust matcher for Options. Let's just store the row data and we will search dynamically.
-                        pass
-                        
+
                 if internal_sym and instrument_key:
                     self.symbol_to_key[internal_sym] = instrument_key
                     self.key_to_symbol[instrument_key] = internal_sym
-                    
-            logger.info(f"Successfully mapped {len(self.symbol_to_key)} exact instruments. Option chain will be built dynamically.")
-            self.csv_data = data # Store for dynamic searches
-            
-            # Map futures and lot sizes
+
+            self.csv_data = data
+            logger.info(f"Successfully mapped {len(self.symbol_to_key)} Upstox instruments.")
+
             self.map_front_month_futures()
             self.map_lot_sizes()
         except Exception as e:
             logger.error(f"Failed to fetch Scrip Master: {e}")
 
+    def _parse_expiry_sort_key(self, exp_val: str) -> str:
+        """Normalizes Upstox CSV expiry (epoch ms or YYYY-MM-DD) for chronological sorting."""
+        if not exp_val:
+            return "9999-12-31"
+        exp_str = str(exp_val).strip()
+        if exp_str.isdigit() and len(exp_str) >= 10:
+            try:
+                ts = int(exp_str) / (1000.0 if len(exp_str) > 10 else 1.0)
+                return datetime.datetime.fromtimestamp(ts, tz=pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+            except Exception:
+                return exp_str
+        return exp_str
+
     def map_front_month_futures(self):
         """Finds the front-month FUTIDX for NIFTY and BANKNIFTY and maps them."""
-        if not hasattr(self, 'csv_data'):
+        if not self.csv_data:
             return
-            
+
         nifty_futs = []
         banknifty_futs = []
-        
+        today_str = datetime.datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+
         reader = csv.DictReader(io.StringIO(self.csv_data))
         for row in reader:
-            if row.get("instrument_type") == "FUTIDX":
-                name = row.get("name")
+            if row.get("exchange") == "NSE_FO" and row.get("instrument_type") == "FUTIDX":
+                name = row.get("name", "").strip().upper()
+                exp_iso = self._parse_expiry_sort_key(row.get("expiry", ""))
+                if exp_iso < today_str:
+                    continue
+                row["_exp_iso"] = exp_iso
                 if name == "NIFTY":
                     nifty_futs.append(row)
                 elif name == "BANKNIFTY":
                     banknifty_futs.append(row)
-                    
-        # Sort by expiry and get the nearest
+
         if nifty_futs:
-            nifty_futs.sort(key=lambda x: x.get("expiry", ""))
+            nifty_futs.sort(key=lambda x: x["_exp_iso"])
             front_key = nifty_futs[0].get("instrument_key")
             if front_key:
-                internal_sym = "FUT:NIFTY:CURR"
-                self.symbol_to_key[internal_sym] = front_key
-                self.key_to_symbol[front_key] = internal_sym
-                logger.info(f"Mapped {internal_sym} -> {front_key}")
-                
+                self.symbol_to_key["FUT:NIFTY:CURR"] = front_key
+                self.key_to_symbol[front_key] = "FUT:NIFTY:CURR"
+                logger.info(f"Mapped FUT:NIFTY:CURR -> {front_key} ({nifty_futs[0].get('tradingsymbol')})")
+
         if banknifty_futs:
-            banknifty_futs.sort(key=lambda x: x.get("expiry", ""))
+            banknifty_futs.sort(key=lambda x: x["_exp_iso"])
             front_key = banknifty_futs[0].get("instrument_key")
             if front_key:
-                internal_sym = "FUT:BANKNIFTY:CURR"
-                self.symbol_to_key[internal_sym] = front_key
-                self.key_to_symbol[front_key] = internal_sym
-                logger.info(f"Mapped {internal_sym} -> {front_key}")
+                self.symbol_to_key["FUT:BANKNIFTY:CURR"] = front_key
+                self.key_to_symbol[front_key] = "FUT:BANKNIFTY:CURR"
+                logger.info(f"Mapped FUT:BANKNIFTY:CURR -> {front_key} ({banknifty_futs[0].get('tradingsymbol')})")
 
     def map_lot_sizes(self):
-        """Extracts dynamic lot sizes directly from the exchange to handle SEBI updates seamlessly."""
-        if not hasattr(self, 'csv_data'):
+        """Extracts dynamic lot sizes directly from Upstox CSV."""
+        if not self.csv_data:
             return
-            
+
         nifty_lot = None
         banknifty_lot = None
-        
+
         reader = csv.DictReader(io.StringIO(self.csv_data))
         for row in reader:
-            if row.get("instrument_type") == "OPTIDX":
-                if row.get("name") == "NIFTY" and not nifty_lot:
+            if row.get("exchange") == "NSE_FO" and row.get("instrument_type") == "OPTIDX":
+                name = row.get("name", "").strip().upper()
+                if name == "NIFTY" and not nifty_lot:
                     nifty_lot = row.get("lot_size")
-                if row.get("name") == "BANKNIFTY" and not banknifty_lot:
+                elif name == "BANKNIFTY" and not banknifty_lot:
                     banknifty_lot = row.get("lot_size")
             if nifty_lot and banknifty_lot:
                 break
-                
+
+        self.nifty_lot_size = nifty_lot
+        self.banknifty_lot_size = banknifty_lot
+
         if not nifty_lot or not banknifty_lot:
             return
 
         import redis
         try:
-            r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+            r = redis.Redis(
+                host=settings.REDIS_HOST,
+                port=settings.REDIS_PORT,
+                db=settings.REDIS_DB,
+                decode_responses=True,
+                socket_connect_timeout=1.0,
+                socket_timeout=1.0,
+            )
             r.set("SYSTEM:LOT:NIFTY", nifty_lot)
             r.set("SYSTEM:LOT:BANKNIFTY", banknifty_lot)
             logger.info(f"Dynamically mapped Lot Sizes -> NIFTY: {nifty_lot}, BANKNIFTY: {banknifty_lot}")
         except Exception as e:
-            logger.error(f"Failed to save lot sizes to redis: {e}")
+            logger.debug(f"Could not sync lot sizes synchronously to Redis: {e}")
 
     def find_option_instrument_key(self, index_name: str, strike: float, opt_type: str) -> str:
-        """Helper to find the nearest expiring option instrument key based on strike."""
-        # This is a simplified search. A real implementation would parse dates and find the nearest expiry.
-        # For now, we will return a dummy key if not found, or use a naive string search on the CSV data.
-        # e.g., NIFTY...22500...CE
-        # To make it super robust, we can parse the CSV and filter.
-        # Implementing a fast filter:
-        if not hasattr(self, 'csv_data'):
+        """Finds nearest non-expired option instrument key using exact underlying name & strike."""
+        if not self.csv_data:
             return ""
-        
-        search_target = f"{index_name.upper()}"
-        strike_str = str(float(strike))
-        
-        reader = csv.DictReader(io.StringIO(self.csv_data))
-        valid_options = []
-        for row in reader:
-            if row.get("instrument_type") == "OPTIDX" and row.get("option_type") == opt_type and float(row.get("strike", 0)) == strike:
-                if row.get("tradingsymbol", "").startswith(search_target):
-                    valid_options.append(row)
-        
-        if valid_options:
-            # Sort by expiry to get the closest one
-            valid_options.sort(key=lambda x: x.get("expiry", ""))
-            front_key = valid_options[0].get("instrument_key", "")
+
+        search_target = index_name.strip().upper()
+        today_str = datetime.datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+
+        if not hasattr(self, "_opt_index_cache") or self._opt_index_cache is None:
+            self._opt_index_cache = {}
+            reader = csv.DictReader(io.StringIO(self.csv_data))
+            for row in reader:
+                if row.get("exchange") == "NSE_FO" and row.get("instrument_type") == "OPTIDX":
+                    nm = row.get("name", "").strip().upper()
+                    if nm not in ("NIFTY", "BANKNIFTY"):
+                        continue
+                    exp_iso = self._parse_expiry_sort_key(row.get("expiry", ""))
+                    if exp_iso < today_str:
+                        continue
+                    try:
+                        st = float(row.get("strike", 0))
+                    except Exception:
+                        continue
+                    ot = row.get("option_type", "").strip().upper()
+                    self._opt_index_cache.setdefault((nm, st, ot), []).append((exp_iso, row.get("instrument_key", "")))
+
+        candidates = self._opt_index_cache.get((search_target, float(strike), opt_type.upper()), [])
+        if candidates:
+            candidates.sort(key=lambda x: x[0])
+            exp_iso, front_key = candidates[0]
             if front_key:
-                internal_sym = f"OPT:{search_target}:{int(strike)}{opt_type}"
+                internal_sym = f"OPT:{search_target}:{int(strike)}{opt_type.upper()}"
                 self.symbol_to_key[internal_sym] = front_key
                 self.key_to_symbol[front_key] = internal_sym
+                self.nearest_expiries[search_target] = exp_iso
                 return front_key
         return ""
 
 
 class PrimaryDataNode:
     """
-    Connects to the primary broker (Upstox) via WebSocket using upstox-python-sdk.
-    Streams live tick data and option chain updates into Redis.
+    Connects to the primary broker (Upstox) via WebSocket V3 (`MarketDataStreamerV3`) & REST.
+    Streams live tick data (Indices, VIX, Futures, Equities, Option Chain + Greeks) into Redis.
     """
+
     def __init__(self):
         self.is_connected = False
+        self.token_valid = False
         self.token_manager = TokenManager()
+        self.token_manager.nearest_expiries = {}
         self.streamer = None
-        
+
         self.configuration = upstox_client.Configuration()
         self.configuration.access_token = settings.UPSTOX_ACCESS_TOKEN
         self.api_client = upstox_client.ApiClient(self.configuration)
 
     async def get_dynamic_subscription_list(self) -> List[str]:
         """
-        Dynamically fetches the actual Nifty and BankNifty ATM strikes and calculates
-        the ± 20 strikes dynamically. Returns Upstox Instrument Keys directly.
+        Determines real Nifty & BankNifty ATM strikes dynamically from Upstox or Redis/NSE spot,
+        returning deduplicated instrument keys with core indices & futures prioritized.
         """
-        instruments = [
-            self.token_manager.symbol_to_key.get("INDEX:NIFTY50"),
-            self.token_manager.symbol_to_key.get("INDEX:NIFTYBANK"),
-            self.token_manager.symbol_to_key.get("INDEX:INDIAVIX"),
-            # Futures
-            self.token_manager.symbol_to_key.get("FUT:NIFTY:CURR"),
-            self.token_manager.symbol_to_key.get("FUT:BANKNIFTY:CURR"),
-            # Add heavyweights
-            self.token_manager.symbol_to_key.get("EQ:HDFCBANK"),
-            self.token_manager.symbol_to_key.get("EQ:RELIANCE"),
-            self.token_manager.symbol_to_key.get("EQ:ICICIBANK"),
-            self.token_manager.symbol_to_key.get("EQ:INFY")
+        priority_syms = [
+            "INDEX:NIFTY50",
+            "INDEX:NIFTYBANK",
+            "INDEX:NIFTYIT",
+            "INDEX:INDIAVIX",
+            "FUT:NIFTY:CURR",
+            "FUT:BANKNIFTY:CURR",
+            "EQ:HDFCBANK",
+            "EQ:RELIANCE",
+            "EQ:ICICIBANK",
+            "EQ:INFY",
+            "EQ:TCS",
+            "EQ:LT",
+            "EQ:AXISBANK",
+            "EQ:KOTAKBANK",
+            "EQ:SBIN",
         ]
-        
-        # Remove Nones
+        instruments = [self.token_manager.symbol_to_key.get(s) for s in priority_syms]
         instruments = [i for i in instruments if i]
 
+        nifty_ltp = 0.0
+        banknifty_ltp = 0.0
+
+        # 1. Try Upstox REST API first
         try:
-            import nsepython
-            # 1. Fetch REAL Nifty 50 spot price
-            nifty_quote = nsepython.nse_quote("NIFTY 50")
-            nifty_ltp = nifty_quote.get("priceInfo", {}).get("lastPrice", 0.0) if nifty_quote else 22500
-            
-            if nifty_ltp > 0:
-                nifty_atm = int(math.floor(nifty_ltp / 50.0)) * 50
-                for step in range(-20, 21):
-                    strike = nifty_atm + (step * 50)
-                    instruments.append(self.token_manager.find_option_instrument_key("NIFTY", strike, "CE"))
-                    instruments.append(self.token_manager.find_option_instrument_key("NIFTY", strike, "PE"))
-
-            # 2. Fetch REAL BankNifty spot price
-            banknifty_quote = nsepython.nse_quote("NIFTY BANK")
-            banknifty_ltp = banknifty_quote.get("priceInfo", {}).get("lastPrice", 0.0) if banknifty_quote else 47500
-
-            if banknifty_ltp > 0:
-                banknifty_atm = int(math.floor(banknifty_ltp / 100.0)) * 100
-                for step in range(-20, 21):
-                    strike = banknifty_atm + (step * 100)
-                    instruments.append(self.token_manager.find_option_instrument_key("BANKNIFTY", strike, "CE"))
-                    instruments.append(self.token_manager.find_option_instrument_key("BANKNIFTY", strike, "PE"))
-
-            instruments = [i for i in instruments if i]
-            logger.info(f"Dynamically generated {len(instruments)} live Upstox tokens.")
+            nifty_key = self.token_manager.symbol_to_key.get("INDEX:NIFTY50")
+            banknifty_key = self.token_manager.symbol_to_key.get("INDEX:NIFTYBANK")
+            market_api = upstox_client.MarketQuoteApi(self.api_client)
+            if nifty_key and banknifty_key and settings.UPSTOX_ACCESS_TOKEN:
+                quote_keys = f"{nifty_key},{banknifty_key}"
+                quote_res = await asyncio.to_thread(
+                    market_api.get_full_market_quote, symbol=quote_keys, api_version="2.0"
+                )
+                if quote_res.status == "success" and quote_res.data:
+                    self.token_valid = True
+                    for k, v in quote_res.data.items():
+                        tok = getattr(v, "instrument_token", k)
+                        if tok == nifty_key or "Nifty 50" in k:
+                            nifty_ltp = getattr(v, "last_price", 0.0) or 0.0
+                        elif tok == banknifty_key or "Nifty Bank" in k:
+                            banknifty_ltp = getattr(v, "last_price", 0.0) or 0.0
         except Exception as e:
-            logger.error(f"Failed to fetch dynamic Option Chain strikes: {e}")
-            
-        return list(set(instruments))
+            err_str = str(e)
+            if "401" in err_str or "UDAPI100050" in err_str or "Unauthorized" in err_str:
+                self.token_valid = False
+                logger.warning("Upstox token expired/unauthorized (401). LiveMarketPoller (NSE/Groww/Yahoo) remains active.")
+            else:
+                logger.error(f"Failed Upstox REST spot check: {e}")
+
+        # 2. Fallback to live cached NSE/Groww spot in Redis if Upstox REST unavailable
+        if nifty_ltp <= 0:
+            n_cached = await redis_db.get_json("LTP:INDEX:NIFTY50")
+            if n_cached:
+                nifty_ltp = float(n_cached.get("ltp", 0.0))
+        if banknifty_ltp <= 0:
+            b_cached = await redis_db.get_json("LTP:INDEX:NIFTYBANK")
+            if b_cached:
+                banknifty_ltp = float(b_cached.get("ltp", 0.0))
+
+        # 3. Dynamically build ATM ± 20 strikes only when real spot is known
+        opt_instruments = []
+        if nifty_ltp > 0:
+            nifty_atm = int(round(nifty_ltp / 50.0)) * 50
+            for step in range(-20, 21):
+                strike = nifty_atm + (step * 50)
+                opt_instruments.append(self.token_manager.find_option_instrument_key("NIFTY", strike, "CE"))
+                opt_instruments.append(self.token_manager.find_option_instrument_key("NIFTY", strike, "PE"))
+
+        if banknifty_ltp > 0:
+            banknifty_atm = int(round(banknifty_ltp / 100.0)) * 100
+            for step in range(-20, 21):
+                strike = banknifty_atm + (step * 100)
+                opt_instruments.append(self.token_manager.find_option_instrument_key("BANKNIFTY", strike, "CE"))
+                opt_instruments.append(self.token_manager.find_option_instrument_key("BANKNIFTY", strike, "PE"))
+
+        # Persist nearest expiry metadata for accurate DTE calculation
+        for idx_name, exp_iso in getattr(self.token_manager, "nearest_expiries", {}).items():
+            await redis_db.set_json(f"SYSTEM:EXPIRY:{idx_name}", {"expiry_date": exp_iso})
+
+        seen = set()
+        ordered = []
+        for k in instruments + [o for o in opt_instruments if o]:
+            if k not in seen:
+                seen.add(k)
+                ordered.append(k)
+
+        logger.info(f"Dynamically generated {len(ordered)} Upstox instrument keys.")
+        return ordered
 
     def on_market_data(self, message):
-        """Callback from Upstox Streamer containing decoded protobuf data."""
-        # Upstox streamer sends updates. Let's push to redis in async-safe manner.
+        """Callback from Upstox Streamer containing decoded protobuf dictionary."""
         try:
-            # message is already a decoded dictionary from upstox SDK
             if not message:
                 return
-            
-            # Use asyncio to dispatch the redis update
             asyncio.run_coroutine_threadsafe(self.process_tick(message), self.loop)
         except Exception as e:
-            logger.error(f"Error handling market data: {e}")
+            logger.error(f"Error handling Upstox market data: {e}")
+
+    @staticmethod
+    def _num(val, default=0.0) -> float:
+        try:
+            return float(val) if val is not None else default
+        except Exception:
+            return default
 
     async def process_tick(self, tick: dict):
-        """Processes the Upstox decoded tick and writes to Redis."""
+        """Processes Upstox MarketDataStreamerV3 decoded tick (both marketFF and indexFF) -> Redis."""
         try:
+            now_ts = time.time()
             for instrument_key, feed_data in tick.get("feeds", {}).items():
-                
-                ffc = feed_data.get("ff") # Full Feed
-                if not ffc:
-                    continue
-                    
+                ffc = feed_data.get("fullFeed") or feed_data.get("ff") or {}
                 market_ff = ffc.get("marketFF")
-                if not market_ff:
+                index_ff = ffc.get("indexFF")
+                ltpc_only = feed_data.get("ltpc")
+
+                if not market_ff and not index_ff and not ltpc_only:
                     continue
 
-                ltp = market_ff.get("ltpc", {}).get("ltp", 0.0)
-                vol = market_ff.get("vtt", 0)
-                oi = market_ff.get("oi", 0)
-                
-                # Market Depth
-                bids = market_ff.get("marketLevel", {}).get("bidAskQuote", [])
-                
                 internal_symbol = self.token_manager.key_to_symbol.get(instrument_key, instrument_key)
 
-                standardized_tick = {
-                    "symbol": internal_symbol,
-                    "ltp": ltp,
-                    "close": market_ff.get("ltpc", {}).get("cp", 0.0),
-                    "volume": vol,
-                    "oi": oi,
-                    "vwap": market_ff.get("vWap", 0.0),
-                    "bid_ask": {"depth": bids}
-                }
+                if index_ff:
+                    ltpc = index_ff.get("ltpc", {})
+                    ltp = self._num(ltpc.get("ltp"), 0.0)
+                    prev_close = self._num(ltpc.get("cp"), 0.0)
+                    ohlc_list = index_ff.get("marketOHLC", {}).get("ohlc", [])
+                    daily_ohlc = next((o for o in ohlc_list if o.get("interval") == "1d"), ohlc_list[0] if ohlc_list else {})
+                    change = round(ltp - prev_close, 2) if prev_close > 0 else 0.0
+                    pct_change = round((change / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
+
+                    standardized_tick = {
+                        "symbol": internal_symbol,
+                        "ltp": ltp,
+                        "close": prev_close,
+                        "open": self._num(daily_ohlc.get("open"), ltp),
+                        "high": self._num(daily_ohlc.get("high"), ltp),
+                        "low": self._num(daily_ohlc.get("low"), ltp),
+                        "change": change,
+                        "pct_change": pct_change,
+                        "day_change": change,
+                        "day_change_pct": pct_change,
+                        "volume": 0,
+                        "oi": 0,
+                        "vwap": 0.0,
+                        "bid_ask": {"depth": []},
+                        "source": "upstox_ws",
+                        "timestamp": now_ts,
+                    }
+                elif market_ff:
+                    ltpc = market_ff.get("ltpc", {})
+                    ltp = self._num(ltpc.get("ltp"), 0.0)
+                    prev_close = self._num(ltpc.get("cp"), 0.0)
+                    vol = int(self._num(market_ff.get("vtt"), 0))
+                    oi = int(self._num(market_ff.get("oi"), 0))
+                    vwap = self._num(market_ff.get("atp") or market_ff.get("vWap"), 0.0)
+                    tbq = int(self._num(market_ff.get("tbq"), 0))
+                    tsq = int(self._num(market_ff.get("tsq"), 0))
+                    raw_iv = self._num(market_ff.get("iv"), 0.0)
+
+                    raw_depth = market_ff.get("marketLevel", {}).get("bidAskQuote", [])
+                    norm_depth = []
+                    for d in raw_depth:
+                        norm_depth.append({
+                            "bidP": self._num(d.get("bidP"), 0.0),
+                            "bidQ": int(self._num(d.get("bidQ") or d.get("bq"), 0)),
+                            "askP": self._num(d.get("askP"), 0.0),
+                            "askQ": int(self._num(d.get("askQ") or d.get("aq"), 0)),
+                        })
+
+                    best_bid = norm_depth[0]["bidP"] if norm_depth else 0.0
+                    best_ask = norm_depth[0]["askP"] if norm_depth else 0.0
+                    spread = round(max(0.0, best_ask - best_bid), 2) if (best_bid > 0 and best_ask > 0) else 0.0
+
+                    ohlc_list = market_ff.get("marketOHLC", {}).get("ohlc", [])
+                    daily_ohlc = next((o for o in ohlc_list if o.get("interval") == "1d"), ohlc_list[0] if ohlc_list else {})
+                    change = round(ltp - prev_close, 2) if prev_close > 0 else 0.0
+                    pct_change = round((change / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
+
+                    standardized_tick = {
+                        "symbol": internal_symbol,
+                        "ltp": ltp,
+                        "close": prev_close,
+                        "open": self._num(daily_ohlc.get("open"), ltp),
+                        "high": self._num(daily_ohlc.get("high"), ltp),
+                        "low": self._num(daily_ohlc.get("low"), ltp),
+                        "change": change,
+                        "pct_change": pct_change,
+                        "day_change": change,
+                        "day_change_pct": pct_change,
+                        "volume": vol,
+                        "oi": oi,
+                        "vwap": vwap,
+                        "tbq": tbq,
+                        "tsq": tsq,
+                        "bid": best_bid,
+                        "ask": best_ask,
+                        "bid_ask_spread": spread,
+                        "bid_ask": {"depth": norm_depth},
+                        "source": "upstox_ws",
+                        "timestamp": now_ts,
+                    }
+
+                    # If Upstox provides native OptionGreeks, persist directly too
+                    upstox_greeks = market_ff.get("optionGreeks")
+                    if upstox_greeks and internal_symbol.startswith("OPT:"):
+                        g_payload = {
+                            "iv": round(raw_iv * 100 if 0 < raw_iv < 3 else raw_iv, 2),
+                            "delta": round(self._num(upstox_greeks.get("delta")), 4),
+                            "gamma": round(self._num(upstox_greeks.get("gamma")), 4),
+                            "theta": round(self._num(upstox_greeks.get("theta")), 2),
+                            "vega": round(self._num(upstox_greeks.get("vega")), 2),
+                            "rho": round(self._num(upstox_greeks.get("rho")), 2),
+                            "source": "upstox_ws",
+                        }
+                        await redis_db.set_json(f"GREEKS:{internal_symbol}", g_payload)
+                else:
+                    ltp = self._num(ltpc_only.get("ltp"), 0.0)
+                    prev_close = self._num(ltpc_only.get("cp"), 0.0)
+                    standardized_tick = {
+                        "symbol": internal_symbol,
+                        "ltp": ltp,
+                        "close": prev_close,
+                        "change": round(ltp - prev_close, 2) if prev_close > 0 else 0.0,
+                        "pct_change": round(((ltp - prev_close) / prev_close) * 100.0, 2) if prev_close > 0 else 0.0,
+                        "volume": 0,
+                        "oi": 0,
+                        "vwap": 0.0,
+                        "bid_ask": {"depth": []},
+                        "source": "upstox_ws",
+                        "timestamp": now_ts,
+                    }
 
                 await redis_db.set_json(f"LTP:{internal_symbol}", standardized_tick)
                 await redis_db.publish_message("TICK_STREAM", standardized_tick)
@@ -296,30 +473,32 @@ class PrimaryDataNode:
             logger.error(f"Tick processing error: {e}")
 
     def on_open(self):
-        logger.info("Upstox WebSocket CONNECTED.")
+        logger.info("Upstox WebSocket V3 CONNECTED.")
         self.is_connected = True
+        self.token_valid = True
 
     def on_close(self, code, reason):
         logger.warning(f"Upstox WebSocket CLOSED: {code} - {reason}")
         self.is_connected = False
-        # Instead of dying permanently, trigger a soft restart internally before failing over
-        logger.info("Attempting auto-reconnect in 5 seconds...")
+
         async def reconnect_task():
-            await asyncio.sleep(5)
-            if not self.is_connected:
-                # Re-fetch keys and re-initialize streamer thread
+            await asyncio.sleep(10)
+            if not self.is_connected and self.token_valid:
                 keys = await self.get_dynamic_subscription_list()
                 if keys:
-                    import threading
-                    t = threading.Thread(target=self.start_streamer_thread, args=(keys,))
-                    t.daemon = True
+                    t = threading.Thread(target=self.start_streamer_thread, args=(keys,), daemon=True)
                     t.start()
-                else:
-                    await self.trigger_fallback()
-        asyncio.run_coroutine_threadsafe(reconnect_task(), self.loop)
+
+        if hasattr(self, "loop") and self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(reconnect_task(), self.loop)
 
     def on_error(self, error):
-        logger.error(f"Upstox WebSocket ERROR: {error}")
+        err_str = str(error)
+        if "401" in err_str or "Unauthorized" in err_str:
+            self.token_valid = False
+            logger.warning("Upstox WebSocket rejected token (401 Unauthorized). Run upstox_auth.py to refresh daily token.")
+        else:
+            logger.error(f"Upstox WebSocket ERROR: {error}")
 
     async def listen_for_subscriptions(self):
         """Listens on Redis for dynamic subscription updates."""
@@ -332,93 +511,125 @@ class PrimaryDataNode:
                     try:
                         data = json.loads(message["data"])
                         new_tokens = data.get("tokens", [])
-                        if new_tokens and self.streamer:
-                            logger.info(f"Received dynamic subscription update: {len(new_tokens)} tokens")
+                        if new_tokens and self.streamer and self.is_connected:
                             self.streamer.subscribe(new_tokens, mode="full")
                     except Exception as e:
                         logger.error(f"Error parsing subscription update: {e}")
 
     def start_streamer_thread(self, instrument_keys: List[str]):
-        """Runs the Upstox websocket in a separate thread so it doesn't block asyncio."""
+        """Runs the Upstox websocket in a daemon thread."""
         try:
             self.streamer = MarketDataStreamerV3(
-                api_client=self.api_client, 
-                instrumentKeys=instrument_keys, 
-                mode="full"
+                api_client=self.api_client,
+                instrumentKeys=instrument_keys,
+                mode="full",
             )
-            
             self.streamer.on("open", self.on_open)
             self.streamer.on("message", self.on_market_data)
             self.streamer.on("error", self.on_error)
             self.streamer.on("close", self.on_close)
-            
-            # This is a blocking call, hence running in a thread
             self.streamer.connect()
         except Exception as e:
             logger.error(f"Failed to start Upstox Streamer: {e}")
 
     async def run(self):
-        """Main entry point for Primary Node."""
+        """Main entry point for Upstox Primary Node."""
         self.loop = asyncio.get_running_loop()
         try:
-            logger.info("Initializing Upstox Primary Live Data Feed...")
-            self.token_manager.fetch_master()
-            
-            instrument_keys = await self.get_dynamic_subscription_list()
-            
-            if not instrument_keys:
-                logger.error("No valid instruments to subscribe to. Exiting.")
+            if not settings.UPSTOX_ACCESS_TOKEN:
+                logger.warning("UPSTOX_ACCESS_TOKEN missing. Running cleanly on NSE/Groww/Yahoo Real-Time Poller.")
+                await redis_db.set_json("SYSTEM:UPSTOX_STATUS", {"connected": False, "token_valid": False, "reason": "NO_TOKEN"})
                 return
 
-            if not settings.UPSTOX_ACCESS_TOKEN:
-                logger.critical("UPSTOX_ACCESS_TOKEN is missing! Please run upstox_auth.py to get it.")
+            logger.info("Initializing Upstox Primary Live Data Feed...")
+            await asyncio.to_thread(self.token_manager.fetch_master)
+
+            instrument_keys = await self.get_dynamic_subscription_list()
+            if not self.token_valid:
+                await redis_db.set_json(
+                    "SYSTEM:UPSTOX_STATUS",
+                    {"connected": False, "token_valid": False, "reason": "TOKEN_EXPIRED_401"},
+                )
                 return
-                
-            # Pre-fetch initial market state (vital when market is closed and WebSocket is silent)
+
+            await redis_db.set_json(
+                "SYSTEM:UPSTOX_STATUS",
+                {"connected": True, "token_valid": True, "instruments": len(instrument_keys)},
+            )
+
+            # Batch initial REST quotes cleanly across ALL priority + option instruments
             try:
-                logger.info("Fetching initial REST quotes to populate offline data...")
                 market_api = upstox_client.MarketQuoteApi(self.api_client)
-                quote_keys = ",".join(instrument_keys[:50]) # API limit might be 50 or 500, keeping safe
-                quote_res = market_api.get_full_market_quote(symbol=quote_keys, api_version="2.0")
-                if quote_res.status == "success":
-                    for key, details in quote_res.data.items():
-                        instrument_token = details.instrument_token
-                        internal_symbol = self.token_manager.key_to_symbol.get(instrument_token, instrument_token)
-                        
-                        standardized_tick = {
-                            "symbol": internal_symbol,
-                            "ltp": details.last_price or 0.0,
-                            "close": details.ohlc.close if hasattr(details, 'ohlc') and details.ohlc else 0.0,
-                            "volume": getattr(details, 'volume', 0) or 0,
-                            "oi": getattr(details, 'oi', 0) or 0,
-                            "bid_ask": {"depth": []}
-                        }
-                        await redis_db.set_json(f"LTP:{internal_symbol}", standardized_tick)
-                    logger.info("Initial REST quotes populated successfully.")
+                now_ts = time.time()
+                for idx in range(0, len(instrument_keys), 50):
+                    batch = instrument_keys[idx : idx + 50]
+                    quote_keys = ",".join(batch)
+                    quote_res = await asyncio.to_thread(
+                        market_api.get_full_market_quote, symbol=quote_keys, api_version="2.0"
+                    )
+                    if quote_res.status == "success" and quote_res.data:
+                        for key, details in quote_res.data.items():
+                            token = getattr(details, "instrument_token", key)
+                            internal_symbol = self.token_manager.key_to_symbol.get(token, token)
+                            ltp = self._num(getattr(details, "last_price", 0.0))
+                            ohlc = getattr(details, "ohlc", None)
+                            prev_close = self._num(getattr(ohlc, "close", 0.0) if ohlc else 0.0)
+                            vol = int(self._num(getattr(details, "volume", 0)))
+                            oi = int(self._num(getattr(details, "oi", 0)))
+                            avg_p = self._num(getattr(details, "average_price", 0.0))
+                            change = self._num(getattr(details, "net_change", ltp - prev_close if prev_close > 0 else 0.0))
+                            pct_change = round((change / prev_close) * 100.0, 2) if prev_close > 0 else 0.0
+
+                            standardized_tick = {
+                                "symbol": internal_symbol,
+                                "ltp": ltp,
+                                "close": prev_close,
+                                "open": self._num(getattr(ohlc, "open", ltp) if ohlc else ltp),
+                                "high": self._num(getattr(ohlc, "high", ltp) if ohlc else ltp),
+                                "low": self._num(getattr(ohlc, "low", ltp) if ohlc else ltp),
+                                "change": round(change, 2),
+                                "pct_change": pct_change,
+                                "volume": vol,
+                                "oi": oi,
+                                "vwap": avg_p,
+                                "bid_ask": {"depth": []},
+                                "source": "upstox_rest",
+                                "timestamp": now_ts,
+                            }
+                            await redis_db.set_json(f"LTP:{internal_symbol}", standardized_tick)
+                logger.info("Upstox initial REST quotes populated successfully.")
             except Exception as e:
-                logger.warning(f"Failed to fetch initial REST quotes: {e}")
+                logger.warning(f"Failed to fetch initial Upstox REST quotes: {e}")
 
             asyncio.create_task(self.listen_for_subscriptions())
-            
-            # Start streamer in background thread
-            streamer_thread = threading.Thread(target=self.start_streamer_thread, args=(instrument_keys,))
-            streamer_thread.daemon = True
+
+            streamer_thread = threading.Thread(target=self.start_streamer_thread, args=(instrument_keys,), daemon=True)
             streamer_thread.start()
-            
-            # Keep asyncio loop alive
+
             while True:
-                await asyncio.sleep(1)
-                
+                await asyncio.sleep(5)
+                await redis_db.set_json(
+                    "SYSTEM:UPSTOX_STATUS",
+                    {
+                        "connected": self.is_connected,
+                        "token_valid": self.token_valid,
+                        "instruments": len(instrument_keys),
+                    },
+                )
+
         except Exception as e:
-            logger.error(f"Primary Data Node crashed: {e}")
+            logger.error(f"Primary Data Node error: {e}")
             await self.trigger_fallback()
 
     async def trigger_fallback(self):
-        logger.critical("PRIMARY DATA NODE FAILURE! Triggering Fallback Node...")
-        await redis_db.publish_message("SYSTEM_ALERT", {"type": "DATA_NODE_CRASH", "source": "Primary"})
+        logger.warning("Primary Upstox feed offline; relying on NSE/Groww/Yahoo Live Poller.")
+        await redis_db.publish_message("SYSTEM_ALERT", {"type": "UPSTOX_OFFLINE", "source": "Primary"})
 
     async def stop(self):
         self.is_connected = False
         if self.streamer:
-            self.streamer.disconnect()
+            try:
+                self.streamer.disconnect()
+            except Exception:
+                pass
         logger.info("Primary Data Node stopped.")

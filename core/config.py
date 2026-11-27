@@ -28,9 +28,22 @@ class Config:
     UPSTOX_ACCESS_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
 
 
-    # LLM Providers
+    # LLM Providers (Paid & Free Tiers + Local Ollama)
+    TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY", "")
+    TOKENROUTER_BASE_URL = os.getenv("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1")
+    TOKENROUTER_MODEL = os.getenv("TOKENROUTER_MODEL", "deepseek/deepseek-v4.1-flash-1017-free")
+    TOKENROUTER_FALLBACK_MODEL = os.getenv("TOKENROUTER_FALLBACK_MODEL", "")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+    CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+    GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.3-70b")
+    LLM_MIN_CONFIDENCE = int(os.getenv("LLM_MIN_CONFIDENCE", "78"))
 
     # Macro & News APIs
     NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
@@ -41,9 +54,10 @@ class Config:
     REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
     REDIS_DB = int(os.getenv("REDIS_DB", 0))
 
-    # Risk Limits
-    MAX_DAILY_LOSS = 5000.0
-    MAX_CONSECUTIVE_LOSSES = 3
+    # Risk Limits & Capital
+    MAX_CAPITAL = float(os.getenv("MAX_CAPITAL", "50000.0"))
+    MAX_DAILY_LOSS = float(os.getenv("MAX_DAILY_LOSS", "5000.0"))
+    MAX_CONSECUTIVE_LOSSES = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "3"))
 
     # Execution Mode (PAPER or LIVE)
     TRADING_MODE = os.getenv("TRADING_MODE", "PAPER")

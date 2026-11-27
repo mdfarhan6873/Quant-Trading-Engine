@@ -10,7 +10,9 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "trading_reco
 
 def init_db():
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=5.0)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
         cursor = conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS trade_logs (
@@ -52,38 +54,56 @@ def init_db():
 
 def set_setting(key: str, value: str):
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO system_settings (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value
-        ''', (key, value))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO system_settings (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """,
+                (key, value),
+            )
+            conn.commit()
     except Exception as e:
         logger.error(f"Failed to save setting {key}: {e}")
 
+
 def get_setting(key: str, default: str = None) -> str:
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('SELECT value FROM system_settings WHERE key = ?', (key,))
-        row = cursor.fetchone()
-        conn.close()
-        return row[0] if row else default
+        with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM system_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else default
     except Exception as e:
         logger.error(f"Failed to fetch setting {key}: {e}")
         return default
 
-def log_trade(symbol: str, action: str, qty: int, price: float, confidence: int, reason: str, pnl: float = 0.0, mode: str = "PAPER", fund_balance: float = 0.0):
+
+def log_trade(
+    symbol: str,
+    action: str,
+    qty: int,
+    price: float,
+    confidence: int,
+    reason: str,
+    pnl: float = 0.0,
+    mode: str = "PAPER",
+    fund_balance: float = 0.0,
+):
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO trade_logs (timestamp, symbol, action, qty, price, confidence, reason, pnl, mode, fund_balance)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (datetime.now().isoformat(), symbol, action, qty, price, confidence, reason, pnl, mode, fund_balance))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(DB_PATH, timeout=5.0) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO trade_logs (timestamp, symbol, action, qty, price, confidence, reason, pnl, mode, fund_balance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (datetime.now().isoformat(), symbol, action, qty, price, confidence, reason, pnl, mode, fund_balance),
+            )
+            conn.commit()
     except Exception as e:
         logger.error(f"Failed to log trade to SQLite: {e}")

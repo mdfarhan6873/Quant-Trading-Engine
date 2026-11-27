@@ -3,250 +3,230 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
+import { ArrowLeft, RefreshCw, CheckCircle2, XCircle, BarChart2, Activity } from "lucide-react";
 import { API_CONFIG } from "@/config/api";
 
 interface Trade {
-  timestamp: string;
-  mode: string;
-  action: string;
-  symbol: string;
-  price: number;
-  confidence: number;
-  pnl: number;
-  reason: string;
+  timestamp: string; mode: string; action: string;
+  symbol: string; price: number; current_ltp?: number | null;
+  confidence: number; pnl: number; fund_balance?: number; reason: string;
 }
 
-export default function AnalysisPage() {
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [modeFilter, setModeFilter] = useState("ALL");
-
-  useEffect(() => {
-    const fetchTrades = async () => {
-      try {
-        const res = await fetch(`${API_CONFIG.BASE_URL}/api/trades?mode=${modeFilter}`);
-        const data = await res.json();
-        setTrades(data.trades || []);
-      } catch (e) {
-        console.error(e);
-      }
-    };
-
-    const fetchHealth = async () => {
-      try {
-        const res = await fetch(`${API_CONFIG.BASE_URL}/api/system/health`);
-        const data = await res.json();
-        setHealth(data);
-      } catch (e) {
-        console.error(e);
-      }
-    };
-
-    const fetchLogs = async () => {
-      try {
-        const res = await fetch(`${API_CONFIG.BASE_URL}/api/system/logs`);
-        const data = await res.json();
-        setLogs(data.logs || []);
-      } catch (e) {
-        console.error(e);
-      }
-    };
-
-    fetchTrades();
-    fetchHealth();
-    fetchLogs();
-
-    // Refresh logs every 5s
-    const logInterval = setInterval(fetchLogs, 5000);
-    return () => clearInterval(logInterval);
-  }, [modeFilter]);
-
-  // KPIs
-  const totalTrades = trades.length;
-  const sellTrades = trades.filter(t => t.action === "SELL");
-  const totalPnl = sellTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-  const profitableTrades = sellTrades.filter(t => (t.pnl || 0) > 0).length;
-  const accuracy = sellTrades.length > 0 ? ((profitableTrades / sellTrades.length) * 100).toFixed(2) : "0.00";
-
+function HealthRow({ label, status }: { label: string; status: boolean }) {
   return (
-    <div className="min-h-screen bg-[#050505] text-gray-200 font-sans p-6">
-      <header className="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
-        <div>
-          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
-            System Analysis & Diagnostics
-          </h1>
-          <p className="text-gray-400 text-sm mt-1">Jini Algo Post-Market Review</p>
-        </div>
-        <Link href="/">
-          <button className="px-6 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors border border-gray-700">
-            ← Back to Dashboard
-          </button>
-        </Link>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-
-        {/* LEFT COLUMN: Controls & KPIs & Health */}
-        <div className="lg:col-span-1 space-y-6">
-
-          {/* Controls */}
-          <div className="bg-[#111] border border-gray-800 p-5 rounded-xl shadow-2xl">
-            <h2 className="text-lg font-bold mb-4 text-gray-300">Filters</h2>
-            <div className="flex bg-gray-900 rounded-lg p-1 border border-gray-800">
-              {['ALL', 'PAPER', 'LIVE'].map(m => (
-                <button
-                  key={m}
-                  onClick={() => setModeFilter(m)}
-                  className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${modeFilter === m ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
-                    }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* KPIs */}
-          <div className="bg-[#111] border border-gray-800 p-5 rounded-xl shadow-2xl space-y-4">
-            <h2 className="text-lg font-bold text-gray-300">Performance</h2>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-400">Total PnL</span>
-              <span className={`text-xl font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                ₹{totalPnl.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-400">Accuracy</span>
-              <span className="text-lg font-bold text-blue-400">{accuracy}%</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-400">Total Trades</span>
-              <span className="text-lg font-bold text-gray-300">{totalTrades}</span>
-            </div>
-          </div>
-
-          {/* Health Checks */}
-          <div className="bg-[#111] border border-gray-800 p-5 rounded-xl shadow-2xl">
-            <h2 className="text-lg font-bold mb-4 text-gray-300">System Health</h2>
-            {health ? (
-              <div className="space-y-3">
-                <HealthRow label="Database Connected" status={health.database_connected as boolean} />
-                <HealthRow label="Redis (Market Data)" status={health.redis_connected as boolean} />
-                <HealthRow label="Data Stream Active" status={health.data_receiving as boolean} />
-                <HealthRow label="Broker Configured" status={health.broker_configured as boolean} />
-
-                {Array.isArray(health.errors) && health.errors.length > 0 && (
-                  <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
-                    <p className="text-xs text-red-400 font-semibold mb-1">Active Alerts:</p>
-                    <ul className="list-disc list-inside text-xs text-red-300">
-                      {(health.errors as string[]).map((err: string, i: number) => (
-                        <li key={i}>{err}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="animate-pulse flex space-x-2">
-                <div className="w-4 h-4 bg-gray-700 rounded-full"></div>
-                <div className="h-4 bg-gray-700 rounded w-24"></div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Trades & Logs */}
-        <div className="lg:col-span-3 space-y-6">
-
-          {/* Trade Ledger */}
-          <div className="bg-[#111] border border-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[500px]">
-            <div className="p-4 border-b border-gray-800 bg-[#161616]">
-              <h2 className="text-lg font-bold text-gray-300">Trade Ledger</h2>
-            </div>
-            <div className="overflow-auto flex-1 p-0">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-gray-400 uppercase bg-[#1a1a1a] sticky top-0">
-                  <tr>
-                    <th className="px-4 py-3">Time</th>
-                    <th className="px-4 py-3">Mode</th>
-                    <th className="px-4 py-3">Action</th>
-                    <th className="px-4 py-3">Symbol</th>
-                    <th className="px-4 py-3">Price</th>
-                    <th className="px-4 py-3">Conf.</th>
-                    <th className="px-4 py-3">PnL</th>
-                    <th className="px-4 py-3">AI Logic</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trades.map((t, i) => (
-                    <tr key={i} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap text-gray-400">
-                        {format(new Date(t.timestamp), "MMM dd, HH:mm:ss")}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${t.mode === 'LIVE' ? 'bg-red-900/50 text-red-400 border border-red-500/30' : 'bg-blue-900/50 text-blue-400 border border-blue-500/30'}`}>
-                          {t.mode}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-bold">
-                        <span className={t.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}>{t.action}</span>
-                      </td>
-                      <td className="px-4 py-3 font-mono">{t.symbol}</td>
-                      <td className="px-4 py-3">₹{t.price}</td>
-                      <td className="px-4 py-3 text-blue-300">{t.confidence}%</td>
-                      <td className={`px-4 py-3 font-bold ${t.pnl > 0 ? 'text-emerald-400' : t.pnl < 0 ? 'text-red-400' : 'text-gray-500'}`}>
-                        {t.action === 'SELL' ? `₹${t.pnl.toFixed(2)}` : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-[200px]" title={t.reason}>
-                        {t.reason}
-                      </td>
-                    </tr>
-                  ))}
-                  {trades.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-gray-500">No trades found for this filter.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* System Logs */}
-          <div className="bg-[#111] border border-gray-800 rounded-xl shadow-2xl flex flex-col h-[300px]">
-            <div className="p-4 border-b border-gray-800 bg-[#161616]">
-              <h2 className="text-lg font-bold text-gray-300">Live System Logs</h2>
-            </div>
-            <div className="overflow-auto flex-1 p-4 bg-black font-mono text-[11px] text-gray-400 leading-relaxed">
-              {logs.map((log, i) => (
-                <div key={i} className="whitespace-pre-wrap">{log}</div>
-              ))}
-              {logs.length === 0 && <div>No logs found or logger not writing to file.</div>}
-            </div>
-          </div>
-
-        </div>
-      </div>
+    <div className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
+      <span className="text-[11px] font-semibold text-slate-600">{label}</span>
+      {status
+        ? <span className="flex items-center gap-1 text-[10px] font-bold text-green-600"><CheckCircle2 size={11} /> PASS</span>
+        : <span className="flex items-center gap-1 text-[10px] font-bold text-red-500"><XCircle size={11} /> FAIL</span>}
     </div>
   );
 }
 
-function HealthRow({ label, status }: { label: string, status: boolean }) {
+function Panel({ title, badge, children, className = "" }: {
+  title: React.ReactNode; badge?: React.ReactNode; children: React.ReactNode; className?: string;
+}) {
   return (
-    <div className="flex justify-between items-center p-2 bg-gray-900/50 rounded border border-gray-800">
-      <span className="text-sm text-gray-300">{label}</span>
-      {status ? (
-        <span className="flex items-center text-emerald-400 text-xs font-bold">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 mr-2 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
-          PASS
-        </span>
-      ) : (
-        <span className="flex items-center text-red-400 text-xs font-bold">
-          <div className="w-2 h-2 rounded-full bg-red-500 mr-2 shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
-          FAIL
-        </span>
-      )}
+    <div className={`flex flex-col bg-white border border-slate-200 rounded-sm shadow-sm ${className}`}>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50 shrink-0">
+        <span className="text-[10px] font-bold tracking-widest uppercase text-slate-500">{title}</span>
+        {badge && <span className="text-[9px] font-bold text-slate-400">{badge}</span>}
+      </div>
+      <div className="flex flex-col flex-1 min-h-0">{children}</div>
+    </div>
+  );
+}
+
+export default function AnalysisPage() {
+  const [trades,     setTrades]     = useState<Trade[]>([]);
+  const [health,     setHealth]     = useState<Record<string, unknown> | null>(null);
+  const [logs,       setLogs]       = useState<string[]>([]);
+  const [modeFilter, setModeFilter] = useState("ALL");
+
+  useEffect(() => {
+    const fetchAll = async () => {
+      try { setTrades((await (await fetch(`${API_CONFIG.BASE_URL}/api/trades?mode=${modeFilter}`)).json()).trades || []); } catch {}
+      try { setHealth(await (await fetch(`${API_CONFIG.BASE_URL}/api/system/health`)).json()); } catch {}
+      try { setLogs((await (await fetch(`${API_CONFIG.BASE_URL}/api/system/logs`)).json()).logs || []); } catch {}
+    };
+    fetchAll();
+    const logInt = setInterval(async () => {
+      try { setLogs((await (await fetch(`${API_CONFIG.BASE_URL}/api/system/logs`)).json()).logs || []); } catch {}
+    }, 5000);
+    return () => clearInterval(logInt);
+  }, [modeFilter]);
+
+  const sells   = trades.filter(t => t.action === "SELL");
+  const pnl     = sells.reduce((s, t) => s + (t.pnl || 0), 0);
+  const wins    = sells.filter(t => t.pnl > 0).length;
+  const acc     = sells.length > 0 ? ((wins / sells.length) * 100).toFixed(1) : "0.0";
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-mono text-slate-900 flex flex-col">
+
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <BarChart2 size={14} className="text-[#05B3D0]" />
+          <span className="text-[12px] font-black tracking-tight text-slate-900">Analytics &amp; Diagnostics</span>
+          <span className="w-px h-5 bg-slate-200" />
+          <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">Engine Audit · Health · Log Stream</span>
+        </div>
+        <Link href="/">
+          <button className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold tracking-wider border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-sm transition-colors">
+            <ArrowLeft size={11} /> DASHBOARD
+          </button>
+        </Link>
+      </header>
+
+      <main className="flex-1 p-3">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+
+          {/* ── Sidebar ── */}
+          <div className="lg:col-span-1 space-y-3">
+
+            {/* Mode filter */}
+            <Panel title="Mode Filter">
+              <div className="p-2">
+                <div className="flex rounded-sm overflow-hidden border border-slate-200 text-[10px] font-black tracking-wider">
+                  {["ALL", "PAPER", "LIVE"].map(m => (
+                    <button key={m} onClick={() => setModeFilter(m)}
+                      className={`flex-1 py-1.5 transition-colors ${
+                        modeFilter === m ? "bg-[#05B3D0] text-white" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      }`}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+
+            {/* Performance KPIs */}
+            <Panel title="Performance" badge={`${trades.length} tickets`}>
+              <div className="p-3 space-y-2.5">
+                <div className="bg-slate-50 border border-slate-100 rounded-sm p-2.5">
+                  <div className="text-[9px] font-semibold uppercase tracking-widest text-slate-400 mb-1">Total Realized PnL</div>
+                  <div className={`text-xl font-black ${pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {pnl >= 0 ? "+" : ""}₹{pnl.toFixed(2)}
+                  </div>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 rounded-sm p-2.5">
+                  <div className="text-[9px] font-semibold uppercase tracking-widest text-slate-400 mb-1">Win Accuracy</div>
+                  <div className="text-xl font-black text-slate-900">{acc}%</div>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 rounded-sm p-2.5">
+                  <div className="text-[9px] font-semibold uppercase tracking-widest text-slate-400 mb-1">Profitable</div>
+                  <div className="text-xl font-black text-[#05B3D0]">{wins} / {sells.length}</div>
+                </div>
+              </div>
+            </Panel>
+
+            {/* Health */}
+            <Panel title="Subsystem Health">
+              <div className="px-3 py-2">
+                {health ? (
+                  <>
+                    <HealthRow label="SQLite Ledger"    status={health.database_connected as boolean} />
+                    <HealthRow label="Redis Store"      status={health.redis_connected as boolean} />
+                    <HealthRow label="Upstox Feed"      status={health.data_receiving as boolean} />
+                    <HealthRow label="Exec Broker"      status={health.broker_configured as boolean} />
+                    {Array.isArray(health.errors) && health.errors.length > 0 && (
+                      <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded-sm">
+                        <p className="text-[10px] text-red-600 font-bold mb-1">Active Warnings</p>
+                        {(health.errors as string[]).map((e, i) => (
+                          <p key={i} className="text-[10px] text-red-500">{e}</p>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 py-4 text-slate-400">
+                    <RefreshCw size={12} className="animate-spin text-[#05B3D0]" />
+                    <span className="text-[10px]">Polling…</span>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          </div>
+
+          {/* ── Main area ── */}
+          <div className="lg:col-span-3 space-y-3">
+
+            {/* Trade Ledger */}
+            <Panel title="Audited Order Ticket Ledger" badge={`${trades.length} records`} className="flex-none">
+              <div className="overflow-auto" style={{ maxHeight: 440 }}>
+                <table className="w-full text-[11px] font-mono">
+                  <thead className="sticky top-0 bg-white z-10">
+                    <tr className="border-b border-slate-100">
+                      {["Timestamp", "Mode", "Action", "Instrument", "Fill Price", "Live LTP", "Conf.", "PnL", "Rationale"].map(h => (
+                        <th key={h} className="text-left px-3 py-2 text-[9px] font-bold tracking-widest uppercase text-slate-400 whitespace-nowrap bg-slate-50">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trades.map((t, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <td className="px-3 py-1.5 text-[10px] text-slate-400 whitespace-nowrap">
+                          {t.timestamp && !Number.isNaN(Date.parse(t.timestamp))
+                            ? format(new Date(t.timestamp), "MMM dd, HH:mm:ss")
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm ${
+                            t.mode === "LIVE"
+                              ? "bg-red-50 text-red-600 border border-red-100"
+                              : "bg-[#05B3D0]/10 text-[#05B3D0]"
+                          }`}>{t.mode}</span>
+                        </td>
+                        <td className={`px-3 py-1.5 font-black ${t.action === "BUY" ? "text-green-600" : "text-red-600"}`}>
+                          {t.action}
+                        </td>
+                        <td className="px-3 py-1.5 font-bold text-slate-900">{t.symbol}</td>
+                        <td className="px-3 py-1.5 text-right font-semibold">₹{t.price}</td>
+                        <td className="px-3 py-1.5 text-right font-semibold text-[#05B3D0]">
+                          {typeof t.current_ltp === "number" && t.current_ltp > 0 ? `₹${t.current_ltp.toFixed(2)}` : "—"}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-bold text-[#05B3D0]">{t.confidence}%</td>
+                        <td className={`px-3 py-1.5 text-right font-black whitespace-nowrap ${t.pnl > 0 ? "text-green-600" : t.pnl < 0 ? "text-red-600" : "text-slate-300"}`}>
+                          {t.action === "SELL" ? `${t.pnl >= 0 ? "+" : ""}₹${t.pnl.toFixed(2)}` : "—"}
+                        </td>
+                        <td className="px-3 py-1.5 text-slate-500 max-w-[180px] truncate" title={t.reason}>
+                          {t.reason}
+                        </td>
+                      </tr>
+                    ))}
+                    {trades.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="text-center py-10 text-slate-300 text-[11px] italic">
+                          No order tickets matching filter
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            {/* Log stream */}
+            <Panel title={<span className="flex items-center gap-1.5"><Activity size={10} className="text-[#05B3D0]" /> Log Stream</span>}
+              badge={<span className="flex items-center gap-1"><span className="live-dot" style={{ width: 5, height: 5 }} /> STREAMING</span>}
+            >
+              <div className="overflow-y-auto p-3 bg-slate-50 font-mono text-[10px] text-slate-500 leading-relaxed" style={{ height: 220 }}>
+                {logs.length === 0
+                  ? <span className="text-slate-300 italic">Awaiting engine logs…</span>
+                  : logs.map((log, i) => (
+                    <div key={i} className="hover:text-slate-900 transition-colors whitespace-pre-wrap py-0.5">
+                      <span className="text-[#05B3D0] font-bold select-none mr-1.5">›</span>{log}
+                    </div>
+                  ))
+                }
+              </div>
+            </Panel>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

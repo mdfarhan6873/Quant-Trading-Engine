@@ -13,16 +13,18 @@ class GrowwRouter:
     Utilizes raw REST endpoints with the provided JWT Auth Token.
     """
     def __init__(self):
-        self.client_id = settings.GROWW_CLIENT_ID
-        self.password = settings.GROWW_PASSWORD
-        self.totp_secret = settings.GROWW_TOTP_SECRET
-        self.api_key = settings.GROWW_API_KEY
-        
-        self.base_url = "https://api.groww.in" 
-        
+        self.client_id = getattr(settings, "GROWW_CLIENT_ID", "")
+        self.password = getattr(settings, "GROWW_PASSWORD", "")
+        self.totp_secret = getattr(settings, "GROWW_TOTP_SECRET", "")
+        self.api_key = getattr(settings, "GROWW_API_KEY", "")
+        self.api_secret = getattr(settings, "GROWW_API_SECRET", "")
+        self.access_token = getattr(settings, "GROWW_ACCESS_TOKEN", "") or self.api_key
+
+        self.base_url = "https://api.groww.in"
+
         # Headers for authenticated requests
         self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
@@ -31,19 +33,17 @@ class GrowwRouter:
 
     async def login(self) -> bool:
         """
-        Validates the provided JWT Token.
+        Validates the provided Groww API Key / JWT Access Token.
         """
         try:
-            logger.info("Validating Groww API Key...")
-            
-            # For now, since the API Key is a JWT, we assume it's valid if provided.
-            # Real validation would hit a user profile endpoint.
-            if len(self.api_key) > 50:
-                self.session_token = self.api_key
-                logger.info("Groww API Key Validated. Execution Engine Armed.")
+            logger.info("Validating Groww API credentials...")
+            token = self.access_token or self.api_key
+            if token and len(token) > 50:
+                self.session_token = token
+                logger.info("Groww API Token Validated. Execution Engine Armed.")
                 return True
             else:
-                logger.error("Groww API Key seems invalid.")
+                logger.error("Groww API Key/Token missing or invalid.")
                 return False
                 
         except Exception as e:

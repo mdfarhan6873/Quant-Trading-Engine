@@ -1,6 +1,51 @@
 @import "tailwindcss";
 
-body {
-  background-color: #09090b; /* zinc-950 */
-  color: #f4f4f5; /* zinc-100 */
+@layer base {
+  :root {
+    --c-accent: #05B3D0;
+    --c-pos:    #16A34A;
+    --c-neg:    #DC2626;
+    --c-warn:   #D97706;
+  }
+
+  body {
+    background: #070A0F;
+    color: #E2E8F0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: #05B3D0; color: #070A0F; }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: #0A0E17; }
+  ::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #05B3D0; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.blink-cursor {
+  display: inline-block;
+  width: 6px; height: 13px;
+  background: #05B3D0;
+  vertical-align: middle;
+  margin-left: 2px;
+  animation: blink 1s step-start infinite;
+}
+
+.live-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #16A34A;
+  animation: pulse-live 1.6s ease-in-out infinite;
 }

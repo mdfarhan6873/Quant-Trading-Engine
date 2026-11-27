@@ -7,4 +7,6 @@ __pycache__/
 dist/
 build/
 logs/
+*.db-shm
+*.db-wal
 .DS_Store

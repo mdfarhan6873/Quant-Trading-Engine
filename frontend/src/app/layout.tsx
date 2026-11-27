@@ -1,29 +1,24 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Jini",
-  description: "Super Intelligent Quant",
+  title: "JINI // QUANT TERMINAL v2.0",
+  description: "Autonomous High-Frequency Quant & Scalping Terminal",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col font-mono bg-[#070A0F] text-[#E2E8F0] selection:bg-[#05B3D0] selection:text-[#070A0F]"
+      >
+        {children}
+      </body>
     </html>
   );
 }
